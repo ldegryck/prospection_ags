@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Administration — Prospection Agri Santerre</title>
+<style>
+:root{
+  --ink:#16211b; --field:#22503a; --field-2:#2d6549; --paper:#eef0e9;
+  --panel:#fff; --stone:#e4e5dd; --line:#d5d6cc; --muted:#5f6b60;
+  --gold:#c08a1e; --gold-soft:#e7c66a; --danger:#a23b2a; --ok:#2f7d4f;
+  --r:14px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:"Inter",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  background:var(--paper);color:var(--ink);font-size:15px;line-height:1.5}
+.appbar{position:sticky;top:0;z-index:40;background:var(--field);color:#f3f6f1;
+  padding:calc(env(safe-area-inset-top) + 12px) 16px 12px;display:flex;align-items:center;gap:12px}
+.appbar .name{font-weight:600;font-size:16px}
+.appbar .name small{display:block;font-size:11px;color:#bcd3c4;font-weight:450}
+.spacer{flex:1}
+.appbar a,.appbar button{background:none;border:1px solid rgba(255,255,255,.25);color:#dfeee4;
+  border-radius:99px;padding:7px 13px;font-size:13px;text-decoration:none;font-family:inherit;cursor:pointer}
+.wrap{max-width:820px;margin:0 auto;padding:20px 14px 80px}
+h1{font-size:21px;margin:6px 0 4px;letter-spacing:-.02em}
+.sub{color:var(--muted);font-size:13.5px;margin:0 0 20px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:18px;margin-bottom:16px}
+.card h2{font-size:15px;margin:0 0 4px}
+.card p{color:var(--muted);font-size:13.5px;margin:0 0 14px}
+.drop{border:2px dashed var(--line);border-radius:12px;padding:26px 18px;text-align:center;
+  background:#fafbf7;transition:.15s;cursor:pointer}
+.drop.over{border-color:var(--field);background:#f1f6f1}
+.drop b{display:block;font-size:14.5px;margin-bottom:3px}
+.drop small{color:var(--muted);font-size:12.5px}
+input[type=file]{display:none}
+button.go{background:var(--field);color:#fff;border:none;border-radius:10px;padding:12px 18px;
+  font-size:14.5px;font-weight:600;font-family:inherit;cursor:pointer;margin-top:14px}
+button.go:disabled{opacity:.45;cursor:default}
+button.alt{background:var(--panel);color:var(--field);border:1px solid var(--field)}
+.bar{height:8px;border-radius:99px;background:var(--stone);overflow:hidden;margin:14px 0 8px;display:none}
+.bar.show{display:block}
+.bar i{display:block;height:100%;background:var(--field);width:0;transition:width .2s}
+.log{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12.5px;
+  background:#f7f8f4;border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:12px;
+  max-height:260px;overflow:auto;white-space:pre-wrap;display:none}
+.log.show{display:block}
+.msg{border-radius:10px;padding:12px 14px;font-size:13.5px;margin-bottom:14px;display:none}
+.msg.show{display:block}
+.msg.err{background:#f7e0da;color:#8a2f1e;border:1px solid #e6b8ab}
+.msg.ok{background:#e7f1ea;color:var(--field);border:1px solid #cfe3d5}
+.msg.warn{background:#fbf0d8;color:#7a5807;border:1px solid #e6d29a}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th,td{text-align:left;padding:8px 6px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-size:12px;font-weight:600}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.gate{position:fixed;inset:0;background:var(--field);z-index:80;display:none;place-items:center;padding:20px}
+.gate.show{display:grid}
+.gatebox{background:var(--panel);border-radius:18px;padding:24px 22px;max-width:380px;width:100%}
+.gatebox h3{margin:0 0 4px;font-size:19px}
+.gatebox p{margin:0 0 16px;color:var(--muted);font-size:13.5px}
+.gatebox label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin:0 0 5px}
+.gatebox input{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:11px;
+  font-size:16px;background:var(--paper);color:var(--ink);margin-bottom:12px;font-family:inherit}
+.gatebox button{width:100%;background:var(--field);color:#fff;border:none;border-radius:11px;
+  padding:13px;font-size:15px;font-weight:600;font-family:inherit;cursor:pointer}
+.err{color:var(--danger);font-size:12.5px;margin:-6px 0 10px;min-height:16px;font-weight:500}
+@media(max-width:560px){ .wrap{padding:16px 12px 60px} }
+</style>
+</head>
+<body>
+
+<div class="appbar">
+  <div class="name">Administration <small>Prospection Agri Santerre</small></div>
+  <div class="spacer"></div>
+  <a href="index.html">← L'outil</a>
+  <button id="logoutBtn">Quitter</button>
+</div>
+
+<div class="wrap">
+  <h1>Fichier clients</h1>
+  <p class="sub" id="who">—</p>
+
+  <div class="msg" id="msg"></div>
+
+  <div class="card">
+    <h2>Importer</h2>
+    <p>Déposez votre export. Les clients existants sont mis à jour, les nouveaux créés,
+       et le parc matériel de chaque client importé est remplacé. <b>Les suivis de
+       prospection déjà saisis ne sont jamais touchés.</b></p>
+
+    <label class="drop" id="drop">
+      <input type="file" id="file" accept=".json,.csv,.txt">
+      <b id="dropTitle">Choisir un fichier</b>
+      <small>JSON (clients + parc matériel) ou CSV (clients seuls) — ou glissez-le ici</small>
+    </label>
+
+    <div class="bar" id="bar"><i id="barIn"></i></div>
+    <button class="go" id="importBtn" disabled>Importer</button>
+    <div class="log" id="log"></div>
+  </div>
+
+  <div class="card">
+    <h2>État actuel</h2>
+    <p>Répartition des clients par commercial, telle qu'elle est en base.</p>
+    <div id="stats">Chargement…</div>
+    <button class="go alt" id="reloadStats">Actualiser</button>
+  </div>
+
+  <div class="card">
+    <h2>Format attendu</h2>
+    <p>Le <b>JSON</b> est un tableau d'objets. Seul <code>id</code> est obligatoire ;
+       c'est lui qui identifie le client d'un import à l'autre.</p>
+    <div class="log show" style="max-height:none">[
+  {
+    "id": "123456789",
+    "nom": "EARL EXEMPLE",
+    "adr": "12 RUE DES CHAMPS 80200 EXEMPLEVILLE",
+    "naf": "Culture de céréales…",
+    "tel": ["0322000000"],
+    "commercial": "nom.prenom",
+    "nb_machines": 2,
+    "annee_achat": 2027,
+    "machines": [
+      { "marque":"MARQUE", "modele":"MODELE", "categorie":"Tracteur",
+        "etat":"NEUF", "plaque":"AA-123-BB", "annee":2026 }
+    ]
+  }
+]</div>
+    <p style="margin-top:14px">Le <b>CSV</b> (séparateur <code>;</code> ou <code>,</code>) met à jour les clients
+       et leur attribution, mais pas le parc matériel. En-têtes reconnus :
+       <code>id, nom, adr, naf, tel, commercial, nb_machines, annee_achat</code>.
+       Plusieurs téléphones se séparent par un espace.</p>
+    <p><b>Le champ <code>commercial</code> doit contenir l'identifiant du vendeur</b>
+       (de la forme <code>nom.prenom</code>), exactement comme dans la table <code>vendeurs</code>.
+       Toute autre valeur — <code>Non attribué</code>, <code>hors.secteur</code>, une faute de
+       frappe — rend le client visible de vous seul.</p>
+  </div>
+</div>
+
+<div class="gate" id="loginGate">
+  <div class="gatebox">
+    <h3>Administration</h3>
+    <p>Connectez-vous avec un compte administrateur.</p>
+    <label for="loginEmail">Adresse e-mail</label>
+    <input id="loginEmail" type="email" autocomplete="username">
+    <label for="loginPwd">Mot de passe</label>
+    <input id="loginPwd" type="password" autocomplete="current-password">
+    <div class="err" id="loginErr"></div>
+    <button id="loginOk">Se connecter</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* =================================================================
+   Renseignez les deux mêmes valeurs que dans index.html
+   ================================================================= */
+const CONFIG = {
+  SUPABASE_URL:      "https://ufpiusdeicxjnctukojq.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_urTGUo3Hr0vpswqQstzn3w_5ptb5ERX"
+};
+
+const SB = {
+  url: (CONFIG.SUPABASE_URL||"").trim().replace(/\/+$/,"").replace(/\/rest\/v1$/,"").replace(/\/+$/,""),
+  key: (CONFIG.SUPABASE_ANON_KEY||"").trim()
+};
+const SESSION_KEY = "ags.prospection.session.v2";
+const LOT = 300;                    // clients par appel — ~350 Ko de JSON
+
+let SESSION=null, ME=null, PAYLOAD=null;
+
+const $ = s=>document.querySelector(s);
+function readLS(k,d){ try{const v=localStorage.getItem(k); return v?JSON.parse(v):d;}catch(e){return d;} }
+function writeLS(k,v){ try{localStorage.setItem(k,JSON.stringify(v));}catch(e){} }
+function dropLS(k){ try{localStorage.removeItem(k);}catch(e){} }
+
+function say(kind, txt){
+  const m=$("#msg"); m.className="msg show "+kind; m.textContent=txt;
+}
+function hideMsg(){ $("#msg").classList.remove("show"); }
+function log(line){
+  const l=$("#log"); l.classList.add("show");
+  l.textContent += (l.textContent?"\n":"")+line;
+  l.scrollTop = l.scrollHeight;
+}
+
+/* ---------------- Authentification ---------------- */
+async function authFetch(path, body){
+  const res=await fetch(SB.url+"/auth/v1/"+path,{
+    method:"POST", headers:{apikey:SB.key,"Content-Type":"application/json"},
+    body: JSON.stringify(body)
+  });
+  const d=await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(d.error_description||d.msg||d.message||("Erreur "+res.status));
+  return d;
+}
+function storeSession(d){
+  SESSION={access_token:d.access_token, refresh_token:d.refresh_token,
+           expires_at: Date.now()+((d.expires_in||3600)-60)*1000};
+  writeLS(SESSION_KEY,SESSION);
+}
+async function validToken(){
+  if(!SESSION) throw new Error("Non connecté");
+  if(Date.now()>=SESSION.expires_at){
+    storeSession(await authFetch("token?grant_type=refresh_token",{refresh_token:SESSION.refresh_token}));
+  }
+  return SESSION.access_token;
+}
+async function sbFetch(path, opts={}, _retry){
+  const token=await validToken();
+  const res=await fetch(SB.url+"/rest/v1/"+path,{
+    ...opts,
+    headers:{apikey:SB.key,Authorization:"Bearer "+token,"Content-Type":"application/json",...(opts.headers||{})}
+  });
+  if(res.status===401 && !_retry){
+    storeSession(await authFetch("token?grant_type=refresh_token",{refresh_token:SESSION.refresh_token}));
+    return sbFetch(path,opts,true);
+  }
+  if(!res.ok){
+    const b=await res.text().catch(()=>"");
+    throw new Error(`HTTP ${res.status} — ${b.slice(0,300)}`);
+  }
+  return res;
+}
+async function rpc(name,args){
+  const r=await sbFetch("rpc/"+name,{method:"POST",body:JSON.stringify(args||{})});
+  return r.json();
+}
+
+/* ---------------- Lecture des fichiers ---------------- */
+function parseCSV(txt){
+  // séparateur déduit de l'en-tête, guillemets gérés
+  const first=txt.split(/\r?\n/)[0]||"";
+  const sep=(first.split(";").length > first.split(",").length) ? ";" : ",";
+  const rows=[]; let cur=[], val="", q=false;
+  for(let i=0;i<txt.length;i++){
+    const ch=txt[i];
+    if(q){
+      if(ch==='"'){ if(txt[i+1]==='"'){ val+='"'; i++; } else q=false; }
+      else val+=ch;
+    }else if(ch==='"'){ q=true; }
+    else if(ch===sep){ cur.push(val); val=""; }
+    else if(ch==="\n"){ cur.push(val); rows.push(cur); cur=[]; val=""; }
+    else if(ch!=="\r"){ val+=ch; }
+  }
+  if(val!==""||cur.length){ cur.push(val); rows.push(cur); }
+  if(rows.length<2) throw new Error("CSV vide ou sans ligne de données.");
+
+  const head=rows[0].map(h=>h.trim().toLowerCase().replace(/^﻿/,""));
+  const idx=n=>head.indexOf(n);
+  if(idx("id")<0) throw new Error("Colonne « id » absente de l'en-tête du CSV.");
+  const num=v=>{ if(v==null||v==="") return null;
+                 const n=parseInt(String(v).replace(/[^0-9-]/g,""),10); return isNaN(n)?null:n; };
+
+  return rows.slice(1).filter(r=>r.length>1 && (r[idx("id")]||"").trim()).map(r=>{
+    const g=n=>{ const i=idx(n); return i<0?null:(r[i]==null?null:String(r[i]).trim()); };
+    const tel=(g("tel")||"").split(/[\s;,/]+/).map(t=>t.trim()).filter(Boolean);
+    return {
+      id: g("id"), nom: g("nom"), adr: g("adr"), naf: g("naf"),
+      tel, commercial: g("commercial"),
+      nb_machines: num(g("nb_machines")),
+      annee_achat: num(g("annee_achat")),
+      machines: null            // absent = on ne touche pas au parc existant
+    };
+  });
+}
+
+// `null` ≠ `0` : un champ absent doit laisser la valeur en base intacte, et non
+// l'écraser par un zéro. D'où ce convertisseur, +v jugeant `null` et `""` finis.
+function toInt(v){
+  if(v===null || v===undefined || v==="") return null;
+  const n=+v; return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+function normalise(list){
+  if(!Array.isArray(list)) throw new Error("Le JSON doit être un tableau d'objets clients.");
+  const out=[], vus=new Set(); let sansId=0, dbl=0;
+  list.forEach(c=>{
+    const id=String(c.id==null?"":c.id).trim();
+    if(!id){ sansId++; return; }
+    if(vus.has(id)){ dbl++; return; }
+    vus.add(id);
+    // machines absent → null : le parc en base est conservé.
+    // machines = [] → le parc est explicitement vidé.
+    const mach = Array.isArray(c.machines) ? c.machines.map(m=>({
+      marque:m.marque??m.mq??null, modele:m.modele??m.md??null,
+      categorie:m.categorie??null, etat:m.etat??m.on??null,
+      plaque:m.plaque??m.pl??null, annee:toInt(m.annee??m.an)
+    })) : null;
+    out.push({
+      id,
+      nom: c.nom??null, adr: c.adr??null, naf: c.naf??null,
+      tel: Array.isArray(c.tel)?c.tel.map(String).filter(Boolean)
+           : (c.tel?String(c.tel).split(/[\s;,/]+/).filter(Boolean):[]),
+      commercial: c.commercial??c.com??null,
+      nb_machines: toInt(c.nb_machines) ?? (mach ? mach.length : null),
+      annee_achat: toInt(c.annee_achat??c.an),
+      machines: mach
+    });
+  });
+  if(!out.length) throw new Error("Aucun client exploitable : vérifiez que chaque ligne a un « id ».");
+  return {list:out, sansId, dbl};
+}
+
+/* ---------------- Import ---------------- */
+async function doImport(){
+  const btn=$("#importBtn"); btn.disabled=true;
+  $("#log").textContent=""; $("#bar").classList.add("show");
+  hideMsg();
+  const t0=Date.now();
+  let cTot=0, mTot=0;
+  try{
+    for(let i=0;i<PAYLOAD.length;i+=LOT){
+      const lot=PAYLOAD.slice(i,i+LOT);
+      const r=await rpc("importer_clients",{payload:lot});
+      cTot += (r && r.clients)||0;
+      mTot += (r && r.machines)||0;
+      const pct=Math.round(Math.min(i+LOT,PAYLOAD.length)/PAYLOAD.length*100);
+      $("#barIn").style.width=pct+"%";
+      log(`lot ${Math.floor(i/LOT)+1} — ${lot.length} clients … ok`);
+    }
+    say("ok", `Import terminé : ${cTot} clients et ${mTot} machines enregistrés en ${Math.round((Date.now()-t0)/1000)} s.`);
+    await loadStats();
+  }catch(e){
+    const m=String(e.message||e);
+    log("ERREUR — "+m);
+    say("err", /Réservé aux administrateurs/.test(m)
+      ? "Votre compte n'est pas administrateur : l'import est refusé par le serveur."
+      : "Import interrompu : "+m+"  (les lots déjà passés sont enregistrés ; relancez le même fichier, l'opération est sans effet de bord)");
+  }finally{
+    btn.disabled=false;
+  }
+}
+
+/* ---------------- État du fichier ---------------- */
+async function loadStats(){
+  const box=$("#stats");
+  try{
+    const rows=await rpc("stats_fichier");
+    if(!rows.length){ box.innerHTML="<p style='margin:0'>La base est vide : importez votre fichier.</p>"; return; }
+    let c=0,m=0;
+    const tr=rows.map(r=>{ c+=r.clients; m+=r.machines;
+      return `<tr><td>${r.commercial}</td><td class="n">${r.clients}</td><td class="n">${r.machines}</td></tr>`;}).join("");
+    box.innerHTML=`<table><thead><tr><th>Commercial</th><th class="n">Clients</th><th class="n">Machines</th></tr></thead>
+      <tbody>${tr}</tbody>
+      <tfoot><tr><th>Total</th><th class="n">${c}</th><th class="n">${m}</th></tr></tfoot></table>`;
+  }catch(e){
+    box.innerHTML="<p style='margin:0'>Lecture impossible : "+String(e.message||e)+"</p>";
+  }
+}
+
+/* ---------------- Fichier déposé ---------------- */
+function handleFile(f){
+  if(!f) return;
+  hideMsg(); $("#log").textContent=""; $("#log").classList.remove("show");
+  $("#bar").classList.remove("show"); $("#barIn").style.width="0";
+  const rd=new FileReader();
+  rd.onload=()=>{
+    try{
+      const txt=String(rd.result||"");
+      const brut = /\.csv$/i.test(f.name) || (!/^\s*[\[{]/.test(txt))
+        ? parseCSV(txt)
+        : JSON.parse(txt);
+      const {list, sansId, dbl} = normalise(brut);
+      PAYLOAD=list;
+      const nbM=list.reduce((a,c)=>a+(c.machines?c.machines.length:0),0);
+      const inconnus=new Set(list.map(c=>c.commercial).filter(Boolean));
+      $("#dropTitle").textContent=f.name;
+      $("#importBtn").disabled=false;
+      let avert=[];
+      if(sansId) avert.push(`${sansId} ligne(s) sans identifiant ignorée(s)`);
+      if(dbl)    avert.push(`${dbl} doublon(s) d'identifiant ignoré(s)`);
+      say(avert.length?"warn":"ok",
+        `${list.length} clients et ${nbM} machines prêts à importer · ${inconnus.size} valeurs de « commercial » distinctes`
+        + (avert.length?` — ${avert.join(", ")}`:""));
+    }catch(e){
+      PAYLOAD=null; $("#importBtn").disabled=true;
+      say("err","Fichier illisible : "+String(e.message||e));
+    }
+  };
+  rd.onerror=()=>say("err","Lecture du fichier impossible.");
+  rd.readAsText(f, "utf-8");
+}
+
+/* ---------------- Démarrage ---------------- */
+function showLogin(){ $("#loginGate").classList.add("show"); setTimeout(()=>$("#loginEmail").focus(),100); }
+
+async function startApp(){
+  const res=await sbFetch("vendeurs?select=vendeur_id,nom_affiche,admin&limit=1");
+  const rows=await res.json();
+  ME=rows[0]||null;
+  if(!ME){ say("err","Votre compte n'est rattaché à aucun vendeur."); $("#who").textContent="—"; return; }
+  $("#who").textContent = ME.nom_affiche + (ME.admin?" · administrateur":" · vendeur");
+  if(!ME.admin){
+    say("err","Cette page est réservée aux administrateurs. Vos droits ne permettent pas d'importer.");
+    $("#importBtn").disabled=true;
+    document.getElementById("drop").style.opacity=".4";
+    document.getElementById("drop").style.pointerEvents="none";
+    return;
+  }
+  await loadStats();
+}
+
+function init(){
+  const drop=$("#drop"), file=$("#file");
+  file.onchange=e=>handleFile(e.target.files[0]);
+  ["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("over");}));
+  ["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("over");}));
+  drop.addEventListener("drop",e=>{ if(e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]); });
+
+  $("#importBtn").onclick=doImport;
+  $("#reloadStats").onclick=loadStats;
+  $("#logoutBtn").onclick=()=>{ dropLS(SESSION_KEY); location.href="index.html"; };
+
+  const go=async()=>{
+    const e=$("#loginEmail").value.trim(), p=$("#loginPwd").value;
+    const err=$("#loginErr"); err.textContent="";
+    if(!e||!p){ err.textContent="Renseignez vos identifiants."; return; }
+    try{
+      storeSession(await authFetch("token?grant_type=password",{email:e,password:p}));
+      $("#loginGate").classList.remove("show");
+      await startApp();
+    }catch(ex){
+      err.textContent=/Invalid login/i.test(String(ex.message))?"E-mail ou mot de passe incorrect.":String(ex.message);
+    }
+  };
+  $("#loginOk").onclick=go;
+  ["#loginEmail","#loginPwd"].forEach(s=>$(s).onkeydown=e=>{ if(e.key==="Enter") go(); });
+
+  if(!/^https:\/\/[^\s/]+/.test(SB.url) || SB.key.length<30){
+    say("err","Renseignez SUPABASE_URL et SUPABASE_ANON_KEY en haut de ce fichier (les mêmes que dans index.html).");
+    showLogin(); $("#loginOk").disabled=true;
+    return;
+  }
+
+  SESSION=readLS(SESSION_KEY,null);
+  if(SESSION && SESSION.refresh_token){
+    authFetch("token?grant_type=refresh_token",{refresh_token:SESSION.refresh_token})
+      .then(d=>{ storeSession(d); return startApp(); })
+      .catch(()=>{ dropLS(SESSION_KEY); SESSION=null; showLogin(); });
+  }else showLogin();
+}
+init();
+</script>
+</body>
+</html>
