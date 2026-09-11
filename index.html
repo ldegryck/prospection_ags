@@ -324,7 +324,7 @@ const DATA = {"naf":["Culture et élevage associés","Culture de céréales (à 
         Laissez "" pour désactiver complètement le code d'accès.
    ================================================================= */
 const CONFIG = {
-  SUPABASE_URL:       "https://ufpiusdeicxjnctukojq.supabase.co/rest/v1/",
+  SUPABASE_URL:       "https://ufpiusdeicxjnctukojq.supabase.co",
   SUPABASE_ANON_KEY:  "sb_publishable_urTGUo3Hr0vpswqQstzn3w_5ptb5ERX",
   ACCESS_CODE_SHA256: "8784ddcf1d45651621e451d6d05f7df201f81833b7a3c5753917d016d2192eb6"
 };
@@ -370,8 +370,10 @@ const el = (t,c,h)=>{const e=document.createElement(t); if(c)e.className=c; if(h
    Repli : cache localStorage, l'app reste utilisable hors connexion.      */
 
 const SB = {
-  url: (CONFIG.SUPABASE_URL||"").replace(/\/+$/,""),
-  key: CONFIG.SUPABASE_ANON_KEY||"",
+  // Supabase affiche l'URL tantôt nue, tantôt suffixée de /rest/v1 selon l'écran
+  // où on la copie : on accepte les deux formes plutôt que de renvoyer un 404.
+  url: (CONFIG.SUPABASE_URL||"").trim().replace(/\/+$/,"").replace(/\/rest\/v1$/,"").replace(/\/+$/,""),
+  key: (CONFIG.SUPABASE_ANON_KEY||"").trim(),
   table: "prospection_status"
 };
 const SB_READY = /^https:\/\/[^\s/]+/.test(SB.url) && SB.key.length > 30;
@@ -425,7 +427,9 @@ async function sbFetch(path, opts={}){
     });
     if(!res.ok){
       const body = await res.text().catch(()=>"");
-      throw new Error(`HTTP ${res.status} — ${body.slice(0,200)}`);
+      // l'URL complète dans le message : c'est ce qui permet de voir en un coup
+      // d'œil une SUPABASE_URL mal recopiée
+      throw new Error(`HTTP ${res.status} sur ${SB.url}/rest/v1/${path} — ${body.slice(0,200)}`);
     }
     return res;
   } finally { clearTimeout(kill); }
