@@ -94,6 +94,22 @@ tfoot th{color:var(--noir);font-size:12px;border-top:2px solid var(--noir);borde
   letter-spacing:.05em;cursor:pointer;border-radius:0}
 .gatebox button:hover{background:var(--rouge-f)}
 .err{color:var(--rouge);font-size:12.5px;margin:-6px 0 11px;min-height:16px;font-weight:600}
+.gatebox .sso{width:100%;display:flex;align-items:center;justify-content:center;gap:11px;
+  background:var(--noir);color:#fff;border:none;padding:14px;font-family:"League Spartan",sans-serif;
+  font-size:14.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;cursor:pointer;border-radius:0}
+.gatebox .sso:hover{background:var(--rouge)}
+.gatebox .sso svg{width:18px;height:18px;flex:none}
+.gatebox .sso[hidden]{display:none}
+.sso-sep{display:flex;align-items:center;gap:11px;margin:15px 0 13px;color:var(--gris-2);
+  font-size:10px;text-transform:uppercase;letter-spacing:.1em;font-weight:700}
+.sso-sep::before,.sso-sep::after{content:"";flex:1;height:1px;background:var(--ligne)}
+.sso-sep[hidden]{display:none}
+.gatebox .pwd-toggle{display:block;width:100%;background:none;border:none;color:var(--gris);font-family:inherit;
+  font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;
+  text-decoration:underline;padding:6px 0 12px;cursor:pointer;border-radius:0}
+.gatebox .pwd-toggle:hover{color:var(--rouge)}
+.gatebox .pwd-toggle[hidden]{display:none}
+#pwdBlock[hidden]{display:none}
 code{background:var(--gris-c);padding:1px 5px;font-size:12.5px}
 @media(max-width:560px){ .wrap{padding:18px 12px 60px} .appbar .name small{display:none} }
 </style>
@@ -172,12 +188,21 @@ code{background:var(--gris-c);padding:1px 5px;font-size:12.5px}
   <div class="gatebox">
     <div class="glyph-l"><svg viewBox="0 0 48 28" fill="currentColor" aria-hidden="true"><polygon points="2,26 15,2 20,2 7,26"/><polygon points="11,26 24,2 29,2 16,26"/><polygon points="20,26 33,2 38,2 25,26"/><polygon points="29,26 42,2 47,2 34,26"/></svg></div><h3>Administration</h3>
     <p>Connectez-vous avec un compte administrateur.</p>
-    <label for="loginEmail">Adresse e-mail</label>
-    <input id="loginEmail" type="email" autocomplete="username">
-    <label for="loginPwd">Mot de passe</label>
-    <input id="loginPwd" type="password" autocomplete="current-password">
-    <div class="err" id="loginErr"></div>
-    <button id="loginOk">Se connecter</button>
+    <button id="ssoBtn" class="sso" hidden>
+      <svg viewBox="0 0 21 21" aria-hidden="true"><rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/><rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/></svg>
+      <span id="ssoLabel">Se connecter avec Microsoft</span>
+    </button>
+    <div class="err" id="ssoErr"></div>
+    <div class="sso-sep" id="ssoSep" hidden><span>ou</span></div>
+    <button class="pwd-toggle" id="pwdToggle" hidden>Se connecter avec un mot de passe</button>
+    <div id="pwdBlock">
+      <label for="loginEmail">Adresse e-mail</label>
+      <input id="loginEmail" type="email" autocomplete="username">
+      <label for="loginPwd">Mot de passe</label>
+      <input id="loginPwd" type="password" autocomplete="current-password">
+      <div class="err" id="loginErr"></div>
+      <button id="loginOk">Se connecter</button>
+    </div>
   </div>
 </div>
 
@@ -189,7 +214,8 @@ code{background:var(--gris-c);padding:1px 5px;font-size:12.5px}
    ================================================================= */
 const CONFIG = {
   SUPABASE_URL:      "https://ufpiusdeicxjnctukojq.supabase.co",
-  SUPABASE_ANON_KEY: "sb_publishable_urTGUo3Hr0vpswqQstzn3w_5ptb5ERX"
+  SUPABASE_ANON_KEY: "sb_publishable_urTGUo3Hr0vpswqQstzn3w_5ptb5ERX",
+  SSO_PROVIDER:      "azure"
 };
 
 const SB = {
@@ -197,6 +223,8 @@ const SB = {
   key: (CONFIG.SUPABASE_ANON_KEY||"").trim()
 };
 const SESSION_KEY = "ags.prospection.session.v2";
+const SSO = (CONFIG.SSO_PROVIDER||"").trim().toLowerCase();
+const SSO_NOMS = {azure:"Microsoft", google:"Google", okta:"Okta"};
 const LOT = 300;                    // clients par appel — ~350 Ko de JSON
 
 let SESSION=null, ME=null, PAYLOAD=null;
@@ -414,7 +442,45 @@ function handleFile(f){
 }
 
 /* ---------------- Démarrage ---------------- */
-function showLogin(){ $("#loginGate").classList.add("show"); setTimeout(()=>$("#loginEmail").focus(),100); }
+function showLogin(){ $("#loginGate").classList.add("show"); if(!SSO) setTimeout(()=>$("#loginEmail").focus(),100); }
+
+/* SSO — même flux implicite que l'outil : le fournisseur renvoie les jetons
+   dans le fragment d'URL, qui ne quitte jamais le navigateur. */
+function ssoRetour(){ return location.origin + location.pathname; }
+function ssoUrl(){
+  return SB.url + "/auth/v1/authorize?provider=" + encodeURIComponent(SSO)
+       + "&redirect_to=" + encodeURIComponent(ssoRetour());
+}
+function signInSSO(){ if(SSO) location.href = ssoUrl(); }
+function capterRetourSSO(){
+  const h = location.hash || "";
+  if(h.length < 2) return null;
+  const p = new URLSearchParams(h.slice(1));
+  const err = p.get("error_description") || p.get("error");
+  const at  = p.get("access_token");
+  if(!err && !at) return null;
+  history.replaceState(null, "", location.pathname + location.search);
+  if(err) return {erreur: decodeURIComponent(String(err).replace(/\+/g," "))};
+  if(!p.get("refresh_token")) return {erreur:"Réponse incomplète du fournisseur d'identité."};
+  storeSession({access_token:at, refresh_token:p.get("refresh_token"),
+                expires_in:parseInt(p.get("expires_in")||"3600",10)});
+  return {ok:true};
+}
+function bindSSO(){
+  if(!SSO){ $("#pwdBlock").hidden = false; return; }
+  $("#ssoBtn").hidden = false; $("#ssoSep").hidden = false;
+  $("#pwdToggle").hidden = false; $("#pwdBlock").hidden = true;
+  $("#ssoLabel").textContent = "Se connecter avec " + (SSO_NOMS[SSO] || SSO);
+  $("#ssoBtn").onclick = signInSSO;
+  $("#pwdToggle").onclick = ()=>{
+    const b=$("#pwdBlock");
+    b.hidden = !b.hidden;
+    $("#pwdToggle").textContent = b.hidden
+      ? "Se connecter avec un mot de passe"
+      : "Masquer la connexion par mot de passe";
+    if(!b.hidden) $("#loginEmail").focus();
+  };
+}
 
 async function startApp(){
   const res=await sbFetch("vendeurs?select=vendeur_id,nom_affiche,admin&limit=1");
@@ -463,6 +529,16 @@ function init(){
     showLogin(); $("#loginOk").disabled=true;
     return;
   }
+
+  bindSSO();
+
+  const retour = capterRetourSSO();
+  if(retour && retour.erreur){
+    showLogin();
+    $("#ssoErr").textContent = "Connexion refusée : " + retour.erreur;
+    return;
+  }
+  if(retour && retour.ok){ startApp().catch(e=>say("err",String(e.message||e))); return; }
 
   SESSION=readLS(SESSION_KEY,null);
   if(SESSION && SESSION.refresh_token){
