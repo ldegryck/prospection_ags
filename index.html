@@ -319,11 +319,33 @@ a{color:inherit}
 .gatebox .pwd-toggle[hidden]{display:none}
 #pwdBlock[hidden],#signupBlock[hidden]{display:none}
 .gatebox .opt{font-weight:500;text-transform:none;letter-spacing:0;color:var(--gris-2)}
-.resline .ajout{background:var(--noir);color:#fff;border:none;padding:7px 12px;
+.resline{flex-wrap:wrap;gap:8px}
+.resline .ajout{background:var(--noir);color:#fff;border:none;padding:8px 13px;
   font-family:"League Spartan",sans-serif;font-size:11px;font-weight:700;
-  text-transform:uppercase;letter-spacing:.05em;border-radius:0;margin:0 auto 0 12px}
+  text-transform:uppercase;letter-spacing:.05em;border-radius:0;margin:0;flex:1 0 100%}
 .resline .ajout:hover{background:var(--rouge)}
 .card.terrain .flag{background:repeating-linear-gradient(135deg,var(--rouge) 0 4px,var(--gris-c) 4px 8px)}
+/* ---------- Validation du contact ---------- */
+.valider{width:100%;margin-top:13px;background:var(--gris-c);color:var(--gris-2);border:none;
+  padding:13px;font-family:"League Spartan",sans-serif;font-size:13.5px;font-weight:800;
+  text-transform:uppercase;letter-spacing:.05em;border-radius:0;cursor:not-allowed}
+.valider.actif{background:var(--rouge);color:#fff;cursor:pointer}
+.valider.actif:hover{background:var(--rouge-f)}
+.vhint{font-size:10.5px;color:var(--rouge);margin-top:7px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.05em;min-height:13px}
+.card.brouillon{box-shadow:0 0 0 2px var(--rouge), var(--shadow)}
+.tab .badge.alerte{color:var(--rouge);font-weight:700}
+/* ---------- Journal ---------- */
+.journal{background:var(--panel);border:1px solid var(--ligne)}
+.jrow{display:flex;gap:12px;padding:11px 14px;border-top:1px solid var(--ligne);cursor:pointer}
+.jrow:first-child{border-top:none}
+.jrow:hover{background:#fafbfb}
+.jh{width:42px;flex:none;color:var(--gris-2);font-size:12.5px;padding-top:2px}
+.jc{flex:1;min-width:0}
+.jc b{font-family:"League Spartan",sans-serif;font-weight:700;font-size:14px;text-transform:uppercase}
+.jc small{display:block;color:var(--gris-2);font-size:11px;margin-top:1px}
+.jtags{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}
+.jn{font-size:12.5px;color:var(--gris);margin-top:6px;padding-left:9px;border-left:2px solid var(--ligne)}
 .stag.t{background:var(--gris-c);color:var(--noir);border:1px solid var(--noir)}
 .gatebox .lien-sec{width:auto;display:block;margin-top:11px;background:none;border:none;
   color:var(--gris);font-family:inherit;font-size:11.5px;font-weight:600;text-transform:none;
@@ -368,6 +390,10 @@ a{color:inherit}
   .rrow .stat.sm{display:block}
 }
 @media(max-width:520px){
+  /* trois onglets + le temoin de synchro ne tiennent pas : on garde le point seul */
+  #syncTxt{display:none}
+  .tab{padding:13px 9px;font-size:12.5px}
+  .tab .badge{margin-left:4px;font-size:10.5px}
   .kpis{grid-template-columns:repeat(2,1fr)}
   .rrow{gap:10px;padding:11px 12px}
   .rrow .bars{gap:10px}
@@ -410,6 +436,7 @@ a{color:inherit}
 <div class="tabs">
   <button class="tab active" data-view="home">Podium</button>
   <button class="tab" data-view="prospect">Prospection <span class="badge" id="mineBadge"></span></button>
+  <button class="tab" data-view="histo">Historique <span class="badge" id="histoBadge"></span></button>
   <div class="spacer"></div>
   <div class="sync" id="syncDot" title="État de la synchronisation"><span class="dot"></span><span id="syncTxt">…</span></div>
 </div>
@@ -417,6 +444,7 @@ a{color:inherit}
 <div class="wrap">
   <div id="viewHome"></div>
   <div id="viewProspect" style="display:none"></div>
+  <div id="viewHisto" style="display:none"></div>
 </div>
 
 <div class="gate lock" id="loginGate">
@@ -519,6 +547,8 @@ const POLL_MS  = 15000;
 const SESSION_KEY = "ags.prospection.session.v2";
 const CACHE_KEY   = "ags.prospection.cache.v2";
 const QUEUE_KEY   = "ags.prospection.queue.v2";
+const DRAFT_KEY   = "ags.prospection.brouillons.v2";
+const CONTACTS_KEY= "ags.prospection.journal.v2";
 
 /* ---------------- État ---------------- */
 let SESSION = null;   // { access_token, refresh_token, expires_at }
@@ -535,6 +565,10 @@ let PAGE = 60;
 
 let LAST_SYNC = null;
 let QUEUE     = [];
+let DRAFT     = {};        // saisies non encore validees, par client
+let CONTACTS  = [];        // journal affiche dans l'onglet Historique
+let FILE_CONTACTS = [];    // lignes de journal en attente d'envoi
+let ENVOI_CONTACTS = false;
 let SENDING   = false;
 let ONLINE    = true;
 let pollTimer = null;
@@ -835,6 +869,58 @@ async function creerClient(champs){
   return local;
 }
 
+/* =================================================================
+   Journal des contacts
+   Chaque validation laisse une ligne datée. Comme les suivis, elle passe par
+   une file d'attente : une coupure réseau ne fait rien perdre.
+   ================================================================= */
+function journaliser(id, s){
+  const ligne = {
+    client_id: id,
+    vendeur_id: ME.vendeur_id,
+    le: new Date().toISOString(),
+    contacte: !!s.c, reponse: s.r||"", projet: !!s.p, notes: s.n||""
+  };
+  const client = CLIENTS.find(c=>c.id===id);
+  CONTACTS.unshift({...ligne, nom: client ? client.nom : id});   // affichage immédiat
+  FILE_CONTACTS.push(ligne);
+  writeLS(CONTACTS_KEY, FILE_CONTACTS);
+  saveCache();
+  syncLabel();
+  envoyerContacts();
+}
+async function envoyerContacts(){
+  if(ENVOI_CONTACTS || !FILE_CONTACTS.length || !SESSION) return;
+  ENVOI_CONTACTS = true;
+  try{
+    while(FILE_CONTACTS.length){
+      const lot = FILE_CONTACTS.slice(0, 25);
+      await sbFetch("contacts", {
+        method:"POST",
+        headers:{ Prefer:"return=minimal" },
+        body: JSON.stringify(lot)
+      });
+      FILE_CONTACTS = FILE_CONTACTS.slice(lot.length);
+      writeLS(CONTACTS_KEY, FILE_CONTACTS);
+      syncLabel();
+    }
+    ENVOI_CONTACTS = false;
+  }catch(e){
+    ENVOI_CONTACTS = false;
+    console.warn("Journal non transmis", e);
+    setTimeout(envoyerContacts, 8000);
+  }
+}
+async function loadContacts(){
+  // les 300 derniers échanges suffisent largement à l'usage terrain
+  const res = await sbFetch("contacts?select=*&order=le.desc&limit=300");
+  const rows = await res.json();
+  CONTACTS = rows.map(r=>{
+    const c = CLIENTS.find(x=>x.id===r.client_id);
+    return {...r, nom: c ? c.nom : r.client_id};
+  });
+}
+
 /* ---- suivis ---- */
 async function loadStatuses(incremental){
   // `gte` plutôt que `gt` : on relit la dernière ligne connue, ce qui évite de
@@ -868,13 +954,15 @@ function loadCache(){
   const c = readLS(CACHE_KEY, null);
   if(c){
     STATUS = c.status||{}; LAST_SYNC = c.last||null;
-    CLIENTS = c.clients||[]; BOARD = c.board||[]; TEAM = c.team||TEAM;
+    CLIENTS = c.clients||[]; BOARD = c.board||[]; TEAM = c.team||TEAM; CONTACTS = c.contacts||[];
     NAMES = {}; BOARD.forEach(b=>{ NAMES[b.vendeur_id]=b.nom; });
   }
   QUEUE = readLS(QUEUE_KEY, []);
+  DRAFT = readLS(DRAFT_KEY, {});          // saisies en cours, jamais perdues
+  FILE_CONTACTS = readLS(CONTACTS_KEY, []);
 }
 function saveCache(){
-  writeLS(CACHE_KEY, {status:STATUS, last:LAST_SYNC, clients:CLIENTS, board:BOARD, team:TEAM});
+  writeLS(CACHE_KEY, {status:STATUS, last:LAST_SYNC, clients:CLIENTS, board:BOARD, team:TEAM, contacts:CONTACTS.slice(0,300)});
 }
 
 /* ---- écriture : file d'attente + réessai ---- */
@@ -981,10 +1069,76 @@ function renderHome(){
 }
 
 /* =================================================================
+   Rendu : Historique des contacts
+   ================================================================= */
+function jourLisible(iso){
+  const d = new Date(iso), a = new Date();
+  const memeJour = (x,y)=>x.toDateString()===y.toDateString();
+  if(memeJour(d,a)) return "Aujourd'hui";
+  const hier = new Date(a); hier.setDate(a.getDate()-1);
+  if(memeJour(d,hier)) return "Hier";
+  return d.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"});
+}
+function renderHisto(){
+  const v=$("#viewHisto"); v.innerHTML="";
+  const head=el("div","hero-h");
+  head.appendChild(el("div",null,
+    `<h1>Historique des contacts</h1><p>${ME && ME.admin ? "Tous les vendeurs" : "Vos échanges"} · ${CONTACTS.length} enregistré${CONTACTS.length>1?"s":""}</p>`));
+  v.appendChild(head);
+
+  if(!CONTACTS.length){
+    v.appendChild(emptyBox("Aucun contact enregistré",
+      "Validez un suivi depuis l'onglet Prospection pour qu'il apparaisse ici."));
+    return;
+  }
+
+  let jour=null, bloc=null;
+  CONTACTS.forEach(c=>{
+    const j = jourLisible(c.le);
+    if(j!==jour){
+      jour=j;
+      v.appendChild(el("div","section-t", j));
+      bloc = el("div","journal");
+      v.appendChild(bloc);
+    }
+    const heure = new Date(c.le).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+    const etats = [
+      c.projet ? '<span class="stag p">Projet</span>' : "",
+      c.reponse ? `<span class="stag r">${repLabel(c.reponse)}</span>` : "",
+      (c.contacte && !c.reponse && !c.projet) ? '<span class="stag c">Contacté</span>' : ""
+    ].join("");
+    const ligne = el("div","jrow");
+    ligne.innerHTML = `
+      <div class="jh num">${heure}</div>
+      <div class="jc">
+        <b>${esc(c.nom || c.client_id)}</b>
+        ${ME && ME.admin && c.vendeur_id!==ME.vendeur_id
+            ? `<small>par ${esc(displayName(c.vendeur_id))}</small>` : ""}
+        <div class="jtags">${etats || '<span class="stag c">Sans suite</span>'}</div>
+        ${c.notes ? `<div class="jn">${esc(c.notes)}</div>` : ""}
+      </div>`;
+    ligne.onclick = ()=>{
+      // renvoie sur la fiche du client concerné
+      FILTERS.q = c.nom || c.client_id; FILTERS.statut="all"; PAGE=60;
+      switchView("prospect");
+      setTimeout(()=>{
+        const carte=document.querySelector('.card[data-id="'+CSS.escape(c.client_id)+'"]');
+        if(carte){ carte.classList.add("open"); carte.scrollIntoView({block:"center"}); }
+      },60);
+    };
+    bloc.appendChild(ligne);
+  });
+}
+
+/* =================================================================
    Rendu : Prospection
    ================================================================= */
 const BLANK = ()=>({c:false,r:"",p:false,n:"",by:null,at:null,cby:null,rby:null,pby:null});
 function statusOf(id){return STATUS[id]||BLANK();}
+/* Ce que la fiche montre : le brouillon en cours s'il existe, sinon l'état
+   enregistré. Les filtres, eux, s'en tiennent à l'enregistré : un suivi non
+   validé ne doit pas faire sortir un client de la liste « à contacter ». */
+function etatAffiche(id){ return DRAFT[id] || statusOf(id); }
 function cardState(s){ return s.p?"s-proj":s.r?"s-rep":s.c?"s-cont":""; }
 
 function baseList(){
@@ -1058,12 +1212,12 @@ function renderProspect(){
 
   const resline=el("div","resline");
   resline.innerHTML=`<span>${list.length} client${list.length>1?"s":""}</span>
-    <button class="ajout" id="btnNouveau">+ Ajouter un client</button>
     <label>Trier : <select id="sortSel">
       <option value="achat"${FILTERS.sort==="achat"?" selected":""}>Achat le plus proche</option>
       <option value="nom"${FILTERS.sort==="nom"?" selected":""}>Nom (A→Z)</option>
       <option value="machines"${FILTERS.sort==="machines"?" selected":""}>Nb de machines</option>
-    </select></label>`;
+    </select></label>
+    <button class="ajout" id="btnNouveau">+ Ajouter un client</button>`;
   v.appendChild(resline);
 
   if(list.length===0){
@@ -1090,8 +1244,8 @@ function emptyBox(title,txt){
 }
 
 function clientCard(c){
-  const s=statusOf(c.id);
-  const card=el("div","card "+cardState(s));
+  const s=etatAffiche(c.id);
+  const card=el("div","card "+cardState(s)+(aBrouillon(c.id)?" brouillon":""));
   card.dataset.id=c.id;
   const soon = c.an!=null && c.an<=NOW_YEAR+1;
   const yearPill = c.an!=null ? `<span class="pill year ${soon?"soon":""}">Achat ~${c.an}</span>` : "";
@@ -1171,6 +1325,8 @@ function cardBody(c,s){
       </div>
       <div class="field-l">Notes</div>
       <textarea class="notes" data-notes placeholder="Compte-rendu d'appel, matériel visé, échéance…">${esc(s.n||"")}</textarea>
+      <button class="valider" data-valider disabled>Valider le contact</button>
+      <div class="vhint" data-vhint></div>
       ${s.by?`<div class="by">Dernière maj par ${esc(displayName(s.by))}${s.at?" · "+new Date(s.at).toLocaleDateString("fr-FR",{day:"2-digit",month:"short"}):""}</div>`:""}
     </div>`;
 
@@ -1305,28 +1461,65 @@ async function chargerCarte(card, c){
   }
 }
 
+/* =================================================================
+   Brouillons — rien n'est enregistré tant que « Valider » n'est pas cliqué
+   -----------------------------------------------------------------
+   Les saisies vivent dans DRAFT jusqu'à validation. Elles sont conservées
+   dans le navigateur : une fiche laissée à moitié remplie se retrouve telle
+   quelle au retour, même après fermeture de l'application.
+   ================================================================= */
+function draftOf(id){
+  if(!DRAFT[id]) DRAFT[id] = {...statusEnregistre(id)};
+  return DRAFT[id];
+}
+function statusEnregistre(id){ return STATUS[id] || BLANK(); }
+function aBrouillon(id){
+  const d = DRAFT[id]; if(!d) return false;
+  const s = statusEnregistre(id);
+  return d.c!==s.c || d.r!==s.r || d.p!==s.p || (d.n||"")!==(s.n||"");
+}
+function oublierBrouillon(id){ delete DRAFT[id]; writeLS(DRAFT_KEY, DRAFT); }
+function nbBrouillons(){ return Object.keys(DRAFT).filter(aBrouillon).length; }
+
 /* ---------------- Interactions ---------------- */
 function ensureStatus(id){ if(!STATUS[id]) STATUS[id]=BLANK(); return STATUS[id]; }
 
-/* `touched` = les champs que le vendeur vient d'actionner ; ils lui sont crédités
-   au podium. Les autres gardent l'auteur qui les avait posés. */
-function commit(id, card, touched){
-  const s=STATUS[id];
-  const me=ME.vendeur_id;
-  const credit={c:"cby", r:"rby", p:"pby"};
-  (touched||[]).forEach(k=>{ s[credit[k]] = s[k] ? me : null; });
+/* Validation : le brouillon devient l'état enregistré, ET laisse une trace
+   datée dans le journal des contacts. `touched` = les champs actionnés depuis
+   la dernière validation ; ils sont crédités au vendeur, au podium. */
+async function validerContact(id, card){
+  const d = draftOf(id);
+  const s = ensureStatus(id);
+  const me = ME.vendeur_id;
+  const avant = {c:s.c, r:s.r, p:s.p};
+
+  s.c = d.c; s.r = d.r; s.p = d.p; s.n = d.n;
+  const credit = {c:"cby", r:"rby", p:"pby"};
+  ["c","r","p"].forEach(k=>{
+    if(d[k] !== avant[k]) s[credit[k]] = s[k] ? me : null;   // changement → crédit
+  });
   if(s.c && !s.cby) s.cby=me;
   if(s.r && !s.rby) s.rby=me;
   if(s.p && !s.pby) s.pby=me;
   if(!s.c) s.cby=null;
   if(!s.r) s.rby=null;
   if(!s.p) s.pby=null;
-  s.by=me; s.at=new Date().toISOString();
+  s.by = me; s.at = new Date().toISOString();
+
   saveStatus(id);
-  const sv=card.querySelector("[data-saved]");
-  if(sv){ sv.classList.add("show"); setTimeout(()=>sv.classList.remove("show"),1200); }
-  card.className="card open "+cardState(s);
+  journaliser(id, s);
+  oublierBrouillon(id);
+
+  const sv = card && card.querySelector("[data-saved]");
+  if(sv){ sv.classList.add("show"); setTimeout(()=>sv.classList.remove("show"),1400); }
+  if(card){
+    card.className = "card open " + cardState(s);
+    const cl = CLIENTS.find(c=>c.id===id);
+    if(cl && cl.cree_par) card.classList.add("terrain");
+  }
   updateMineBadge();
+  majBoutonValider(card, id);
+  majHistoBadge();
 }
 
 function bindProspect(){
@@ -1342,29 +1535,77 @@ function bindProspect(){
 
   document.querySelectorAll(".card").forEach(card=>{
     const id=card.dataset.id;
+
+    // Les clics modifient le BROUILLON. Rien ne part tant que « Valider »
+    // n'a pas été pressé.
     card.querySelectorAll(".tgl").forEach(t=>t.onclick=ev=>{
       ev.stopPropagation();
-      const s=ensureStatus(id); const a=t.dataset.act; const touched=[a];
-      s[a]=!s[a]; t.classList.toggle("on",s[a]);
-      if(a==="p" && s.p && !s.c){s.c=true; touched.push("c"); const ct=card.querySelector(".tgl.cont"); if(ct)ct.classList.add("on");}
-      commit(id,card,touched);
-      if(a==="p") toast(s.p?"Projet crédité à "+displayName(ME.vendeur_id):"Projet retiré");
+      const d=draftOf(id); const a=t.dataset.act;
+      d[a]=!d[a]; t.classList.toggle("on",d[a]);
+      if(a==="p" && d.p && !d.c){ d.c=true; const ct=card.querySelector(".tgl.cont"); if(ct)ct.classList.add("on"); }
+      brouillonModifie(card,id);
     });
     card.querySelectorAll("[data-rep-v]").forEach(seg=>seg.onclick=ev=>{
       ev.stopPropagation();
-      const s=ensureStatus(id); const val=seg.dataset.repV; const touched=["r"];
-      s.r = s.r===val ? "" : val;
-      if(s.r && !s.c){ s.c=true; touched.push("c"); }
-      card.querySelectorAll("[data-rep-v]").forEach(x=>x.classList.toggle("on",x.dataset.repV===s.r));
-      const ct=card.querySelector(".tgl.cont"); if(ct)ct.classList.toggle("on",s.c);
-      commit(id,card,touched);
+      const d=draftOf(id); const val=seg.dataset.repV;
+      d.r = d.r===val ? "" : val;
+      if(d.r && !d.c) d.c=true;
+      card.querySelectorAll("[data-rep-v]").forEach(x=>x.classList.toggle("on",x.dataset.repV===d.r));
+      const ct=card.querySelector(".tgl.cont"); if(ct)ct.classList.toggle("on",d.c);
+      brouillonModifie(card,id);
     });
     const ta=card.querySelector("[data-notes]");
     if(ta){
-      ta.oninput=debounce(()=>{ const s=ensureStatus(id); s.n=ta.value; commit(id,card); },500);
+      ta.oninput=debounce(()=>{ draftOf(id).n=ta.value; brouillonModifie(card,id); },300);
       ta.onclick=e=>e.stopPropagation();
     }
+    const bv=card.querySelector("[data-valider]");
+    if(bv){
+      bv.onclick=async ev=>{
+        ev.stopPropagation();
+        bv.disabled=true; bv.textContent="Enregistrement…";
+        try{
+          await validerContact(id, card);
+          toast("Contact enregistré");
+        }finally{
+          bv.textContent="Valider le contact";
+          majBoutonValider(card,id);
+        }
+      };
+      majBoutonValider(card,id);
+    }
   });
+}
+
+/* Le bouton ne s'active que s'il y a quelque chose à enregistrer, et la carte
+   porte une marque tant que la saisie n'est pas validée. */
+function brouillonModifie(card,id){
+  writeLS(DRAFT_KEY, DRAFT);
+  majBoutonValider(card,id);
+  const d=draftOf(id);
+  card.className = "card open " + cardState(d) + (aBrouillon(id) ? " brouillon" : "");
+  const cl = CLIENTS.find(c=>c.id===id);
+  if(cl && cl.cree_par) card.classList.add("terrain");
+  majHistoBadge();
+}
+function majBoutonValider(card,id){
+  if(!card) return;
+  const bv=card.querySelector("[data-valider]");
+  const hint=card.querySelector("[data-vhint]");
+  if(!bv) return;
+  const enAttente = aBrouillon(id);
+  bv.disabled = !enAttente;
+  bv.classList.toggle("actif", enAttente);
+  if(hint) hint.textContent = enAttente
+    ? "Modifications non enregistrées."
+    : "";
+}
+function majHistoBadge(){
+  const b=$("#histoBadge"); if(!b) return;
+  const n=nbBrouillons();
+  b.textContent = n ? String(n) : "";
+  b.title = n ? n+" contact"+(n>1?"s":"")+" à valider" : "";
+  b.classList.toggle("alerte", n>0);
 }
 
 /* ---------------- Saisie d'un nouveau client ---------------- */
@@ -1442,9 +1683,12 @@ function debounce(fn,ms){let h;return(...a)=>{clearTimeout(h);h=setTimeout(()=>f
 function switchView(view){
   VIEW=view;
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.view===view));
-  $("#viewHome").style.display = view==="home"?"block":"none";
+  $("#viewHome").style.display     = view==="home"?"block":"none";
   $("#viewProspect").style.display = view==="prospect"?"block":"none";
-  if(view==="home") renderHome(); else renderProspect();
+  $("#viewHisto").style.display    = view==="histo"?"block":"none";
+  if(view==="home") renderHome();
+  else if(view==="histo") renderHisto();
+  else renderProspect();
   window.scrollTo({top:0});
 }
 
@@ -1458,6 +1702,7 @@ function isEditing(){
 }
 function repaint(auto){
   if(VIEW==="home") renderHome();
+  else if(VIEW==="histo") renderHisto();
   else if(!auto || !isEditing()) renderProspect();
   updateMineBadge();
 }
@@ -1465,8 +1710,10 @@ async function refresh(btn, auto){
   if(btn) btn.classList.add("spin");
   try{
     await flushQueue();
+    await envoyerContacts();
     await loadStatuses(!!auto);
     await loadBoard();
+    await loadContacts();
     ONLINE=true; banner(null); saveCache();
   }catch(e){
     ONLINE=false;
@@ -1627,6 +1874,7 @@ async function startApp(){
     await flushQueue();
     await loadStatuses(false);
     await loadBoard();
+    await loadContacts();
     saveCache();
     ONLINE=true; banner(null);
   }catch(e){
@@ -1655,7 +1903,10 @@ async function init(){
   window.addEventListener("online", ()=>{ if(ME){ ONLINE=true; banner(null); refresh(null,true); } });
   window.addEventListener("offline",()=>{ ONLINE=false; syncLabel();
     banner("Hors connexion — vos saisies sont gardées et repartiront au retour du réseau."); });
-  window.addEventListener("beforeunload", e=>{ if(QUEUE.length){ e.preventDefault(); e.returnValue=""; } });
+  window.addEventListener("beforeunload", e=>{
+    // saisies non parties, ou contacts saisis mais non validés
+    if(QUEUE.length || FILE_CONTACTS.length || nbBrouillons()){ e.preventDefault(); e.returnValue=""; }
+  });
 
   if(!SB_READY){
     showLogin("");
