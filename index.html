@@ -317,7 +317,13 @@ a{color:inherit}
   letter-spacing:.05em;text-decoration:underline;padding:6px 0 12px;border-radius:0}
 .gatebox .pwd-toggle:hover{color:var(--rouge)}
 .gatebox .pwd-toggle[hidden]{display:none}
-#pwdBlock[hidden]{display:none}
+#pwdBlock[hidden],#signupBlock[hidden]{display:none}
+.gatebox .lien-sec{width:auto;display:block;margin-top:11px;background:none;border:none;
+  color:var(--gris);font-family:inherit;font-size:11.5px;font-weight:600;text-transform:none;
+  letter-spacing:0;text-decoration:underline;padding:4px 0;text-align:left;border-radius:0}
+.gatebox .lien-sec:hover{color:var(--rouge);background:none}
+.gatebox .aide{background:var(--gris-c);border-left:3px solid var(--rouge);padding:10px 12px;
+  font-size:12.5px;color:var(--gris);margin:0 0 15px}
 .gate.lock .glyph-l{width:74px;height:56px;margin:0 0 14px;display:grid;place-items:center}
 .gate.lock .glyph-l svg{width:74px;height:56px}
 
@@ -427,6 +433,21 @@ a{color:inherit}
       <input id="loginPwd" type="password" autocomplete="current-password" placeholder="••••••••">
       <div class="err" id="loginErr"></div>
       <button id="loginOk">Se connecter</button>
+      <button class="lien-sec" id="versInscription">Première connexion ? Choisir mon mot de passe</button>
+    </div>
+
+    <div id="signupBlock" hidden>
+      <p class="aide">Votre adresse doit déjà figurer dans l'équipe. Choisissez le mot de
+         passe que vous utiliserez ensuite pour vous connecter.</p>
+      <label for="suEmail">Adresse e-mail professionnelle</label>
+      <input id="suEmail" type="email" inputmode="email" autocomplete="username" placeholder="prenom.nom@agrisanterre.fr">
+      <label for="suPwd">Mot de passe</label>
+      <input id="suPwd" type="password" autocomplete="new-password" placeholder="8 caractères minimum">
+      <label for="suPwd2">Confirmer le mot de passe</label>
+      <input id="suPwd2" type="password" autocomplete="new-password" placeholder="••••••••">
+      <div class="err" id="suErr"></div>
+      <button id="suOk">Créer mon compte</button>
+      <button class="lien-sec" id="versConnexion">J'ai déjà un mot de passe</button>
     </div>
   </div>
 </div>
@@ -540,6 +561,22 @@ function storeSession(d){
 async function signIn(email, password){
   const d = await authFetch("token?grant_type=password", {email, password});
   storeSession(d);
+}
+
+/* Création de compte par le vendeur lui-même.
+   La base refuse toute adresse absente de `vendeurs` (trigger
+   verifier_inscription) : l'inscription est ouverte, mais pas à n'importe qui.
+   Selon le réglage « Confirm email » de Supabase, la réponse contient déjà une
+   session (connexion immédiate) ou seulement l'utilisateur (e-mail à valider). */
+async function signUp(email, password){
+  const d = await authFetch("signup", {email, password});
+  // Supabase masque volontairement le cas « adresse déjà inscrite » quand la
+  // confirmation par e-mail est active : il renvoie un utilisateur sans identité.
+  if(d.user && Array.isArray(d.user.identities) && d.user.identities.length === 0){
+    return {deja:true};
+  }
+  if(d.access_token){ storeSession(d); return {connecte:true}; }
+  return {connecte:false};
 }
 async function refreshSession(){
   if(!SESSION || !SESSION.refresh_token) throw new Error("Session absente");
@@ -1305,13 +1342,79 @@ function bindSSO(){
   $("#ssoBtn").onclick = signInSSO;
   $("#pwdToggle").onclick = ()=>{
     const b=$("#pwdBlock");
-    b.hidden = !b.hidden;
+    const ouvert = b.hidden && $("#signupBlock").hidden;   // rien d'affiché → on ouvre
+    b.hidden = !ouvert;
+    $("#signupBlock").hidden = true;                       // on revient toujours sur la connexion
     $("#pwdToggle").textContent = b.hidden
       ? "Se connecter avec un mot de passe"
       : "Masquer la connexion par mot de passe";
     if(!b.hidden) $("#loginEmail").focus();
   };
 }
+/* Traduit les messages de Supabase, qui arrivent en anglais et parfois très
+   techniques — « Database error saving new user » est la forme que prend notre
+   propre verrou d'inscription. */
+function messageAuth(brut){
+  const m = String(brut || "");
+  if(/Invalid login/i.test(m))            return "E-mail ou mot de passe incorrect.";
+  if(/Email not confirmed/i.test(m))      return "Compte non confirmé — ouvrez le lien reçu par e-mail.";
+  if(/already registered|already exists/i.test(m))
+    return "Un compte existe déjà pour cette adresse. Connectez-vous, ou demandez une réinitialisation à l'administrateur.";
+  if(/Database error saving new user|Adresse non autorisee|check_violation/i.test(m))
+    return "Cette adresse ne figure pas dans l'équipe. Contactez l'administrateur.";
+  if(/Password should be at least (\d+)/i.test(m))
+    return "Mot de passe trop court : " + m.match(/at least (\d+)/i)[1] + " caractères au minimum.";
+  if(/weak.?password/i.test(m))           return "Mot de passe trop simple : allongez-le ou variez les caractères.";
+  if(/rate limit|too many/i.test(m))      return "Trop de tentatives. Patientez quelques minutes.";
+  if(/signups? not allowed|disabled/i.test(m))
+    return "La création de compte est désactivée côté serveur. Contactez l'administrateur.";
+  return m;
+}
+
+function bindInscription(){
+  const aller = (versSignup)=>{
+    $("#pwdBlock").hidden    = versSignup;
+    $("#signupBlock").hidden = !versSignup;
+    $("#loginErr").textContent = ""; $("#suErr").textContent = "";
+    if(versSignup){ $("#suEmail").value = $("#loginEmail").value.trim(); $("#suEmail").focus(); }
+    else { $("#loginEmail").focus(); }
+  };
+  $("#versInscription").onclick = ()=>aller(true);
+  $("#versConnexion").onclick   = ()=>aller(false);
+
+  const btn=$("#suOk"), err=$("#suErr");
+  const creer = async ()=>{
+    const e=$("#suEmail").value.trim(), p=$("#suPwd").value, p2=$("#suPwd2").value;
+    err.textContent="";
+    if(!e || !p){ err.textContent="Renseignez votre adresse et un mot de passe."; return; }
+    if(p !== p2){ err.textContent="Les deux mots de passe ne correspondent pas."; return; }
+    if(p.length < 8){ err.textContent="Choisissez au moins 8 caractères."; return; }
+    btn.disabled=true; btn.textContent="Création…";
+    try{
+      const r = await signUp(e, p);
+      if(r.deja){
+        err.textContent = messageAuth("already registered");
+      }else if(r.connecte){
+        $("#loginGate").classList.remove("show");
+        await startApp();
+        toast("Compte créé — bienvenue !");
+      }else{
+        // confirmation par e-mail active côté Supabase
+        $("#pwdBlock").hidden=false; $("#signupBlock").hidden=true;
+        $("#loginEmail").value = e;
+        $("#loginErr").textContent =
+          "Compte créé. Ouvrez le lien de confirmation reçu par e-mail, puis connectez-vous.";
+      }
+    }catch(ex){
+      err.textContent = messageAuth(ex.message);
+    }finally{
+      btn.disabled=false; btn.textContent="Créer mon compte";
+    }
+  };
+  btn.onclick = creer;
+  ["#suEmail","#suPwd","#suPwd2"].forEach(s=>$(s).onkeydown=ev=>{ if(ev.key==="Enter") creer(); });
+}
+
 function bindLogin(){
   const btn=$("#loginOk"), mail=$("#loginEmail"), pwd=$("#loginPwd"), err=$("#loginErr");
   const go=async()=>{
@@ -1324,10 +1427,7 @@ function bindLogin(){
       $("#loginGate").classList.remove("show");
       await startApp();
     }catch(ex){
-      const m=String(ex.message||"");
-      err.textContent = /Invalid login/i.test(m)
-        ? "E-mail ou mot de passe incorrect."
-        : (/Email not confirmed/i.test(m) ? "Compte non confirmé — voyez votre messagerie." : m);
+      err.textContent = messageAuth(ex.message);
     }finally{
       btn.disabled=false; btn.textContent="Se connecter";
     }
@@ -1383,6 +1483,7 @@ async function startApp(){
 
 async function init(){
   bindLogin();
+  bindInscription();
   bindSSO();
 
   document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>switchView(t.dataset.view));
