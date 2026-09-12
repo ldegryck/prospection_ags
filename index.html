@@ -381,6 +381,10 @@ a{color:inherit}
 .adminlink:hover{background:var(--rouge)}
 .adminlink::before{content:"";width:5px;height:11px;background:var(--rouge);transform:skewX(var(--skew))}
 .adminlink:hover::before{background:#fff}
+.adminlink.export::before{background:#fff}
+.adminlink.export{background:var(--rouge)}
+.adminlink.export:hover{background:var(--noir)}
+.adminlink[disabled]{opacity:.5}
 .scope{font-size:12px;color:var(--gris);margin:0 0 10px}
 .scope b{color:var(--noir);font-weight:700}
 
@@ -1069,6 +1073,69 @@ function renderHome(){
 }
 
 /* =================================================================
+   Export tableur
+   -----------------------------------------------------------------
+   CSV en UTF-8 avec marque d'ordre des octets et séparateur « ; » :
+   c'est ce qu'Excel français ouvre correctement d'un double-clic, colonnes
+   séparées et accents intacts. Un vrai .xlsx exigerait une bibliothèque
+   externe pour un résultat identique à l'usage.
+   ================================================================= */
+function csvChamp(v){
+  const s = (v===null || v===undefined) ? "" : String(v);
+  return /[";\n\r]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+}
+function telechargerCSV(nomFichier, lignes){
+  const contenu = "﻿" + lignes.map(l=>l.map(csvChamp).join(";")).join("\r\n");
+  const blob = new Blob([contenu], {type:"text/csv;charset=utf-8;"});
+  const url  = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = nomFichier;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(url); }, 1500);
+}
+function dateFR(iso){ return new Date(iso).toLocaleDateString("fr-FR"); }
+function heureFR(iso){ return new Date(iso).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}); }
+function horodatageFichier(){
+  const d=new Date(), p=n=>String(n).padStart(2,"0");
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;
+}
+
+async function exporterHistorique(btn){
+  const texteInitial = btn ? btn.textContent : "";
+  if(btn){ btn.disabled=true; btn.textContent="Préparation…"; }
+  try{
+    // on repart du serveur : l'affichage est plafonné à 300 lignes,
+    // l'export doit être complet.
+    const rows = await fetchAll(
+      "contacts?select=le,vendeur_id,client_id,contacte,reponse,projet,notes,clients(nom,adr)&order=le.desc");
+    if(!rows.length){ toast("Aucun contact à exporter"); return; }
+    const entete = ["Date","Heure","Client","Commune","Contacté","Réponse","Projet","Notes","Identifiant client"];
+    if(ME && ME.admin) entete.splice(2, 0, "Vendeur");
+    const lignes = [entete];
+    rows.forEach(r=>{
+      const cl = r.clients || {};
+      const l = [
+        dateFR(r.le), heureFR(r.le),
+        cl.nom || r.client_id, cl.adr || "",
+        r.contacte ? "oui" : "non",
+        r.reponse ? repLabel(r.reponse) : "",
+        r.projet ? "oui" : "non",
+        r.notes || "", r.client_id
+      ];
+      if(ME && ME.admin) l.splice(2, 0, displayName(r.vendeur_id));
+      lignes.push(l);
+    });
+    telechargerCSV(`historique-contacts-${horodatageFichier()}.csv`, lignes);
+    toast(`${rows.length} contact${rows.length>1?"s":""} exporté${rows.length>1?"s":""}`);
+  }catch(e){
+    toast("Export impossible — vérifiez la connexion");
+    console.warn("Export", e);
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent=texteInitial; }
+  }
+}
+
+/* =================================================================
    Rendu : Historique des contacts
    ================================================================= */
 function jourLisible(iso){
@@ -1084,6 +1151,11 @@ function renderHisto(){
   const head=el("div","hero-h");
   head.appendChild(el("div",null,
     `<h1>Historique des contacts</h1><p>${ME && ME.admin ? "Tous les vendeurs" : "Vos échanges"} · ${CONTACTS.length} enregistré${CONTACTS.length>1?"s":""}</p>`));
+  if(CONTACTS.length){
+    const exp = el("button","adminlink export","Exporter vers Excel");
+    exp.onclick = ()=>exporterHistorique(exp);
+    head.appendChild(exp);
+  }
   v.appendChild(head);
 
   if(!CONTACTS.length){
