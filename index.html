@@ -318,6 +318,13 @@ a{color:inherit}
 .gatebox .pwd-toggle:hover{color:var(--rouge)}
 .gatebox .pwd-toggle[hidden]{display:none}
 #pwdBlock[hidden],#signupBlock[hidden]{display:none}
+.gatebox .opt{font-weight:500;text-transform:none;letter-spacing:0;color:var(--gris-2)}
+.resline .ajout{background:var(--noir);color:#fff;border:none;padding:7px 12px;
+  font-family:"League Spartan",sans-serif;font-size:11px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.05em;border-radius:0;margin:0 auto 0 12px}
+.resline .ajout:hover{background:var(--rouge)}
+.card.terrain .flag{background:repeating-linear-gradient(135deg,var(--rouge) 0 4px,var(--gris-c) 4px 8px)}
+.stag.t{background:var(--gris-c);color:var(--noir);border:1px solid var(--noir)}
 .gatebox .lien-sec{width:auto;display:block;margin-top:11px;background:none;border:none;
   color:var(--gris);font-family:inherit;font-size:11.5px;font-weight:600;text-transform:none;
   letter-spacing:0;text-decoration:underline;padding:4px 0;text-align:left;border-radius:0}
@@ -449,6 +456,26 @@ a{color:inherit}
       <button id="suOk">Créer mon compte</button>
       <button class="lien-sec" id="versConnexion">J'ai déjà un mot de passe</button>
     </div>
+  </div>
+</div>
+
+<div class="gate" id="nouveauClient">
+  <div class="gatebox">
+    <h3>Nouveau client</h3>
+    <p>Il sera ajouté à votre portefeuille, et visible de vous seul.</p>
+    <label for="ncNom">Nom de l'exploitation</label>
+    <input id="ncNom" type="text" autocomplete="off" placeholder="EARL DES CHAMPS">
+    <label for="ncAdr">Adresse ou commune</label>
+    <input id="ncAdr" type="text" autocomplete="off" placeholder="80200 PÉRONNE">
+    <label for="ncTel">Téléphone</label>
+    <input id="ncTel" type="tel" inputmode="tel" autocomplete="off" placeholder="03 22 00 00 00">
+    <label for="ncSiren">N° SIREN ou SIRET <span class="opt">— si vous le connaissez</span></label>
+    <input id="ncSiren" type="text" inputmode="numeric" autocomplete="off" placeholder="9 ou 14 chiffres">
+    <label for="ncAn">Année d'achat envisagée</label>
+    <input id="ncAn" type="number" inputmode="numeric" placeholder="2027">
+    <div class="err" id="ncErr"></div>
+    <button id="ncOk">Ajouter à mon portefeuille</button>
+    <button class="lien-sec" id="ncAnnuler">Annuler</button>
   </div>
 </div>
 
@@ -750,15 +777,62 @@ async function fetchAll(path){
 /* ---- fichier clients (déjà filtré par le serveur) ---- */
 async function loadClients(){
   const rows = await fetchAll(
-    "clients?select=id,nom,adr,naf,tel,commercial,nb_machines,annee_achat,machines(ordre,marque,modele,categorie,etat,plaque,annee)&order=nom.asc"
+    "clients?select=id,nom,adr,naf,tel,commercial,nb_machines,annee_achat,cree_par,machines(ordre,marque,modele,categorie,etat,plaque,annee)&order=nom.asc"
   );
   CLIENTS = rows.map(r=>({
     id:r.id, nom:r.nom, adr:r.adr, naf:r.naf, tel:r.tel||[], com:r.commercial,
-    nm:r.nb_machines||0, an:r.annee_achat,
+    nm:r.nb_machines||0, an:r.annee_achat, cree_par:r.cree_par||null,
     m:(r.machines||[]).sort((a,b)=>(a.ordre||0)-(b.ordre||0)).map(m=>({
       mq:m.marque, md:m.modele, c:m.categorie, on:m.etat, pl:m.plaque, an:m.annee
     }))
   }));
+}
+
+/* =================================================================
+   Création d'un client rencontré sur le terrain
+   -----------------------------------------------------------------
+   L'identifiant fait foi d'un import à l'autre. Quand le vendeur connaît le
+   SIREN/SIRET, on l'utilise : le jour où ce client arrivera dans l'export,
+   l'import le reconnaîtra et complétera la fiche au lieu d'en créer une
+   seconde. Sans numéro, on génère un identifiant préfixé `loc-`, facile à
+   repérer — et le doublon reste possible si le client entre plus tard dans
+   le fichier officiel.
+   ================================================================= */
+function idDepuisSiren(saisie){
+  const chiffres = String(saisie||"").replace(/\D/g,"");
+  return (chiffres.length === 9 || chiffres.length === 14) ? chiffres : null;
+}
+function idLocal(){
+  return "loc-" + Date.now().toString(36) + "-" +
+         Math.random().toString(36).slice(2, 7);
+}
+async function creerClient(champs){
+  const ligne = {
+    id:          champs.id,
+    nom:         champs.nom,
+    adr:         champs.adr || null,
+    naf:         null,
+    tel:         champs.tel ? [champs.tel] : [],
+    commercial:  ME.vendeur_id,     // la policy refuse toute autre valeur
+    nb_machines: 0,
+    annee_achat: champs.an,
+    cree_par:    ME.vendeur_id,
+    cree_le:     new Date().toISOString()
+  };
+  const res = await sbFetch("clients", {
+    method:"POST",
+    headers:{ Prefer:"return=representation" },
+    body: JSON.stringify([ligne])
+  });
+  const rows = await res.json();
+  const r = (rows && rows[0]) || ligne;
+  const local = {
+    id:r.id, nom:r.nom, adr:r.adr, naf:r.naf, tel:r.tel||[], com:r.commercial,
+    nm:0, an:r.annee_achat, m:[], cree_par:r.cree_par
+  };
+  CLIENTS.push(local);
+  saveCache();
+  return local;
 }
 
 /* ---- suivis ---- */
@@ -984,6 +1058,7 @@ function renderProspect(){
 
   const resline=el("div","resline");
   resline.innerHTML=`<span>${list.length} client${list.length>1?"s":""}</span>
+    <button class="ajout" id="btnNouveau">+ Ajouter un client</button>
     <label>Trier : <select id="sortSel">
       <option value="achat"${FILTERS.sort==="achat"?" selected":""}>Achat le plus proche</option>
       <option value="nom"${FILTERS.sort==="nom"?" selected":""}>Nom (A→Z)</option>
@@ -1023,10 +1098,12 @@ function clientCard(c){
   const machPill = `<span class="pill mach num">${c.nm} mach.</span>`;
   const naf = c.naf ? `<span class="naf">${esc(c.naf)}</span>` : "";
   const stags = [
+    c.cree_par?'<span class="stag t">Ajout terrain</span>':"",
     s.c?'<span class="stag c">Contacté</span>':"",
     s.r?`<span class="stag r">${repLabel(s.r)}</span>`:"",
     s.p?'<span class="stag p">Projet</span>':""
   ].join("");
+  if(c.cree_par) card.classList.add("terrain");
 
   card.innerHTML=`
     <div class="chead">
@@ -1072,6 +1149,11 @@ function cardBody(c,s){
       <span class="mspacer"></span>${cat}${on}${an}</div>`;
   }).join("");
   const more = c.nm>c.m.length?`<div class="mmore">+ ${c.nm-c.m.length} autres machines non détaillées</div>`:"";
+  // un client saisi sur le terrain n'a pas de parc connu : on le dit plutôt
+  // que d'afficher un cadre vide
+  const parc = c.m.length===0 && c.nm===0
+    ? `<div class="mmore">Aucun matériel connu pour ce client.</div>`
+    : rows + more;
 
   const track=`
     <div class="track">
@@ -1109,7 +1191,7 @@ function cardBody(c,s){
 
   return `<div class="calls">${calls}</div>${addr}
     <div class="mach-h">Parc matériel — ${c.nm} machine${c.nm>1?"s":""}</div>
-    <div class="mach">${rows}${more}</div>${track}`;
+    <div class="mach">${parc}</div>${track}`;
 }
 
 /* =================================================================
@@ -1254,6 +1336,7 @@ function bindProspect(){
       const nq=$("#q"); if(nq){nq.focus(); try{nq.setSelectionRange(pos,pos);}catch(_){}}},220);
   }
   const sortSel=$("#sortSel"); if(sortSel) sortSel.onchange=e=>{FILTERS.sort=e.target.value; renderProspect();};
+  const bn=$("#btnNouveau"); if(bn) bn.onclick=ouvrirNouveauClient;
   document.querySelectorAll("#secteurChips .chip").forEach(b=>b.onclick=()=>{FILTERS.secteur=b.dataset.sec;PAGE=60;renderProspect();});
   document.querySelectorAll("#statutChips .chip").forEach(b=>b.onclick=()=>{FILTERS.statut=b.dataset.st;PAGE=60;renderProspect();});
 
@@ -1281,6 +1364,66 @@ function bindProspect(){
       ta.oninput=debounce(()=>{ const s=ensureStatus(id); s.n=ta.value; commit(id,card); },500);
       ta.onclick=e=>e.stopPropagation();
     }
+  });
+}
+
+/* ---------------- Saisie d'un nouveau client ---------------- */
+function ouvrirNouveauClient(){
+  ["#ncNom","#ncAdr","#ncTel","#ncSiren","#ncAn"].forEach(s=>$(s).value="");
+  $("#ncErr").textContent="";
+  $("#nouveauClient").classList.add("show");
+  setTimeout(()=>$("#ncNom").focus(), 80);
+}
+function bindNouveauClient(){
+  const fermer = ()=>$("#nouveauClient").classList.remove("show");
+  $("#ncAnnuler").onclick = fermer;
+  $("#nouveauClient").onclick = e=>{ if(e.target.id==="nouveauClient") fermer(); };
+
+  const btn=$("#ncOk"), err=$("#ncErr");
+  btn.onclick = async ()=>{
+    const nom = $("#ncNom").value.trim();
+    err.textContent="";
+    if(!ME || !ME.vendeur_id){ err.textContent="Votre compte n'est rattaché à aucun portefeuille."; return; }
+    if(!nom){ err.textContent="Le nom de l'exploitation est obligatoire."; return; }
+
+    const siren = $("#ncSiren").value.trim();
+    const id = siren ? idDepuisSiren(siren) : idLocal();
+    if(siren && !id){ err.textContent="Le numéro doit comporter 9 chiffres (SIREN) ou 14 (SIRET). Laissez vide si vous ne l'avez pas."; return; }
+
+    const anSaisie = $("#ncAn").value.trim();
+    const an = anSaisie ? parseInt(anSaisie.replace(/\D/g,""),10) : null;
+    if(anSaisie && (!an || an < 1990 || an > 2100)){ err.textContent="Année d'achat invalide."; return; }
+
+    if(CLIENTS.some(c=>c.id===id)){ err.textContent="Ce client est déjà dans votre portefeuille."; return; }
+
+    btn.disabled=true; btn.textContent="Ajout…";
+    try{
+      const c = await creerClient({id, nom, adr:$("#ncAdr").value.trim(),
+                                   tel:$("#ncTel").value.replace(/\s/g,""), an});
+      fermer();
+      FILTERS.statut="all"; FILTERS.q=""; PAGE=60;
+      renderProspect();
+      updateMineBadge();
+      // on ouvre la fiche pour enchaîner directement sur le suivi d'appel
+      const carte = document.querySelector('.card[data-id="'+CSS.escape(c.id)+'"]');
+      if(carte){ carte.classList.add("open"); carte.scrollIntoView({block:"center"}); }
+      toast("Client ajouté à votre portefeuille");
+    }catch(ex){
+      const m = String(ex.message||"");
+      if(/duplicate key|23505/i.test(m)){
+        err.textContent = "Ce numéro correspond à un client déjà enregistré, hors de votre portefeuille. Demandez son transfert à l'administrateur.";
+      }else if(/row-level security|42501|violates/i.test(m)){
+        err.textContent = "Création refusée par le serveur. Votre compte n'a peut-être pas de portefeuille.";
+      }else{
+        err.textContent = "Ajout impossible : " + m.slice(0,160);
+      }
+    }finally{
+      btn.disabled=false; btn.textContent="Ajouter à mon portefeuille";
+    }
+  };
+  ["#ncNom","#ncAdr","#ncTel","#ncSiren","#ncAn"].forEach(s=>$(s).onkeydown=e=>{
+    if(e.key==="Enter") btn.click();
+    if(e.key==="Escape") fermer();
   });
 }
 
@@ -1502,6 +1645,7 @@ async function init(){
   bindLogin();
   bindInscription();
   bindSSO();
+  bindNouveauClient();
 
   document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>switchView(t.dataset.view));
   $("#refreshBtn").onclick=e=>refresh(e.currentTarget);
