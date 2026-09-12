@@ -66,7 +66,50 @@ select vendeur_id, email, nom_affiche, admin, (user_id is not null) as compte_cr
 *Enable sign-ups*. Ce n'est pas indispensable — un compte dont l'e-mail est inconnu de
 la table `vendeurs` ne voit strictement rien — mais autant fermer la porte.
 
-### 2 bis. SSO Microsoft (facultatif mais recommandé)
+### 2 bis. Comptes : les vendeurs choisissent leur mot de passe
+
+Vous n'avez plus à créer les comptes un par un. À la première ouverture, le vendeur
+clique sur **« Première connexion ? Choisir mon mot de passe »**, saisit son adresse
+professionnelle et le mot de passe de son choix. Il est connecté dans la foulée.
+
+Votre seul geste : **que son adresse figure dans la table `vendeurs`**. C'est elle qui
+fait office d'invitation.
+
+Dans Supabase, *Authentication* → *Providers* → *Email* : laissez **Enable sign-ups
+activé** — sans quoi l'écran de création refusera tout le monde.
+
+> **Le verrou qui rend cela sûr.** Ouvrir l'inscription, c'est normalement laisser
+> n'importe qui créer un compte — et surtout laisser un inconnu **prendre l'adresse
+> d'un vendeur avant lui**. Le déclencheur `verifier_inscription` refuse, au niveau de
+> la base, toute adresse absente de `vendeurs` ou désactivée. Ni l'application, ni un
+> appel direct à l'API ne peuvent passer outre.
+>
+> Conséquence à connaître : la création manuelle d'un compte dans *Authentication →
+> Users* obéit au même verrou. Ajoutez la personne à `vendeurs` d'abord, créez son
+> compte ensuite.
+
+**Deux niveaux de sécurité, selon votre réglage** *Authentication → Providers → Email
+→ Confirm email* :
+
+| Confirm email | Ce que ça donne |
+|---|---|
+| **Désactivé** | Le vendeur est connecté immédiatement. Aucun e-mail à configurer. Risque résiduel : quelqu'un connaissant l'URL **et** une adresse de la liste pourrait s'inscrire à la place d'un vendeur qui ne s'est pas encore connecté. Le vendeur s'en apercevrait aussitôt (son adresse serait déjà prise). |
+| **Activé** | Le vendeur doit ouvrir un lien reçu par e-mail : l'usurpation devient impossible. Exige un **SMTP configuré** — le serveur d'essai de Supabase est bridé à quelques envois par heure et ne tiendra pas 17 inscriptions. |
+
+En pratique : faites créer les comptes pendant une réunion d'équipe, confirmation
+désactivée, et le problème ne se pose pas. Pour une mise en service étalée, configurez
+un SMTP et activez la confirmation.
+
+**Longueur du mot de passe** : la page n'impose rien. C'est Supabase qui tranche, via
+*Authentication* → *Providers* → *Email* → **Minimum password length** (6 par défaut).
+Pour être plus ou moins permissif, c'est là que ça se règle — le refus éventuel est
+affiché en français au vendeur.
+
+**Mot de passe oublié** : la réinitialisation en autonomie demande elle aussi un SMTP.
+Sans cela, vous changez le mot de passe depuis *Authentication → Users → …  → Reset
+password*. Le SSO Microsoft ci-dessous supprime entièrement ce problème.
+
+### 2 ter. SSO Microsoft (facultatif mais recommandé)
 
 Les vendeurs se connectent avec leur compte Microsoft 365 : aucun mot de passe à
 créer, distribuer ni réinitialiser. C'est inclus dans le plan gratuit de Supabase.

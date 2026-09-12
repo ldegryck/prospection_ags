@@ -482,8 +482,23 @@ function bindSSO(){
   };
 }
 
+/* La policy renvoie toutes les lignes à un administrateur : on filtre sur
+   l'identifiant du compte, lu dans le jeton, sinon on récupérerait la fiche
+   d'un collègue au hasard. */
+function monUid(){
+  try{
+    // base64url -> base64 : les JWT sont émis sans caractères de remplissage,
+    // qu'atob exige. On les rajoute avant de décoder.
+    let s = SESSION.access_token.split(".")[1].replace(/-/g,"+").replace(/_/g,"/");
+    while(s.length % 4) s += "=";
+    return JSON.parse(atob(s)).sub || null;
+  }catch(e){ return null; }
+}
 async function startApp(){
-  const res=await sbFetch("vendeurs?select=vendeur_id,nom_affiche,admin&limit=1");
+  const uid = monUid();
+  if(!uid) throw new Error("Jeton d'authentification illisible — reconnectez-vous.");
+  const res=await sbFetch("vendeurs?select=vendeur_id,nom_affiche,admin&user_id=eq."
+                          + encodeURIComponent(uid) + "&limit=1");
   const rows=await res.json();
   ME=rows[0]||null;
   if(!ME){ say("err","Votre compte n'est rattaché à aucun vendeur."); $("#who").textContent="—"; return; }

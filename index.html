@@ -442,7 +442,7 @@ a{color:inherit}
       <label for="suEmail">Adresse e-mail professionnelle</label>
       <input id="suEmail" type="email" inputmode="email" autocomplete="username" placeholder="prenom.nom@agrisanterre.fr">
       <label for="suPwd">Mot de passe</label>
-      <input id="suPwd" type="password" autocomplete="new-password" placeholder="8 caractères minimum">
+      <input id="suPwd" type="password" autocomplete="new-password" placeholder="Le mot de passe de votre choix">
       <label for="suPwd2">Confirmer le mot de passe</label>
       <input id="suPwd2" type="password" autocomplete="new-password" placeholder="••••••••">
       <div class="err" id="suErr"></div>
@@ -710,9 +710,25 @@ function statusToRow(id,s){
   };
 }
 
-/* ---- qui suis-je ---- */
+/* ---- qui suis-je ----
+   L'identifiant du compte est lu dans le jeton lui-même (claim `sub`), jamais
+   deviné. Indispensable : la policy « vendeurs: ma fiche » renvoie TOUTES les
+   lignes à un administrateur. Sans ce filtre, un admin récupérerait la fiche
+   d'un collègue au hasard — et lui créditerait ses saisies au podium. */
+function monUid(){
+  try{
+    // base64url -> base64 : les JWT sont émis sans caractères de remplissage,
+    // qu'atob exige. On les rajoute avant de décoder.
+    let s = SESSION.access_token.split(".")[1].replace(/-/g,"+").replace(/_/g,"/");
+    while(s.length % 4) s += "=";
+    return JSON.parse(atob(s)).sub || null;
+  }catch(e){ return null; }
+}
 async function loadMe(){
-  const res = await sbFetch("vendeurs?select=vendeur_id,nom_affiche,admin&limit=1");
+  const uid = monUid();
+  if(!uid) throw new Error("Jeton d'authentification illisible — reconnectez-vous.");
+  const res = await sbFetch(
+    "vendeurs?select=vendeur_id,nom_affiche,admin&user_id=eq." + encodeURIComponent(uid) + "&limit=1");
   const rows = await res.json();
   if(!rows.length) return null;          // compte non rattaché à un vendeur
   return rows[0];
@@ -1388,7 +1404,8 @@ function bindInscription(){
     err.textContent="";
     if(!e || !p){ err.textContent="Renseignez votre adresse et un mot de passe."; return; }
     if(p !== p2){ err.textContent="Les deux mots de passe ne correspondent pas."; return; }
-    if(p.length < 8){ err.textContent="Choisissez au moins 8 caractères."; return; }
+    // Aucune longueur imposée ici : c'est le réglage « Minimum password length »
+    // de Supabase qui tranche, et son refus est traduit par messageAuth().
     btn.disabled=true; btn.textContent="Création…";
     try{
       const r = await signUp(e, p);
