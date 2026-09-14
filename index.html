@@ -346,6 +346,35 @@ a{color:inherit}
 .jc small{display:block;color:var(--gris-2);font-size:11px;margin-top:1px}
 .jtags{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}
 .jn{font-size:12.5px;color:var(--gris);margin-top:6px;padding-left:9px;border-left:2px solid var(--ligne)}
+.hactions{display:flex;gap:6px;flex-wrap:wrap}
+.restaurer{background:var(--noir);color:#fff;border:none;padding:8px 12px;flex:none;align-self:center;
+  font-family:"League Spartan",sans-serif;font-size:10.5px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.05em;border-radius:0;cursor:pointer}
+.restaurer:hover{background:var(--rouge)}
+.restaurer:disabled{opacity:.45}
+/* rapports deja enregistres, dans la fiche */
+.deja{width:100%;background:var(--gris-c);color:var(--noir);border:none;border-left:3px solid var(--rouge);
+  padding:10px 12px;margin-bottom:12px;font-family:inherit;font-size:12px;font-weight:600;
+  text-align:left;cursor:pointer;border-radius:0}
+.deja:hover{background:#dfe2e5}
+.rapports{margin:-6px 0 12px;border:1px solid var(--ligne);background:var(--panel)}
+.rapports[hidden]{display:none}
+.rrap{display:flex;gap:9px;align-items:center;padding:9px 11px;border-top:1px solid var(--ligne);
+  font-size:12px;cursor:pointer;flex-wrap:wrap}
+.rrap:first-child{border-top:none}
+.rrap:hover{background:#fafbfb}
+.rrap .rd{color:var(--gris-2);flex:none}
+.rrap .rt{display:flex;gap:4px;flex:none}
+.rrap .rn2{color:var(--gris);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rrap .rm{color:var(--rouge);font-weight:700;text-transform:uppercase;font-size:10px;
+  letter-spacing:.05em;flex:none}
+.rrap.vide{color:var(--gris-2);cursor:default}
+.gatebox .lien-sec.danger{color:var(--rouge)}
+.gatebox .lien-sec.danger:hover{color:var(--rouge-f)}
+.track .lien-sec{display:block;width:100%;background:none;border:none;color:var(--gris-2);
+  font-family:inherit;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;
+  text-decoration:underline;padding:10px 0 0;text-align:left;cursor:pointer;border-radius:0}
+.track .lien-sec.danger:hover{color:var(--rouge)}
 .stag.t{background:var(--gris-c);color:var(--noir);border:1px solid var(--noir)}
 .gatebox .lien-sec{width:auto;display:block;margin-top:11px;background:none;border:none;
   color:var(--gris);font-family:inherit;font-size:11.5px;font-weight:600;text-transform:none;
@@ -488,6 +517,27 @@ a{color:inherit}
       <button id="suOk">Créer mon compte</button>
       <button class="lien-sec" id="versConnexion">J'ai déjà un mot de passe</button>
     </div>
+  </div>
+</div>
+
+<div class="gate" id="editRapport">
+  <div class="gatebox">
+    <h3>Modifier le rapport</h3>
+    <p id="erInfo">—</p>
+    <div class="toggles">
+      <button class="tgl cont" id="erCont">
+        <span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-9"/></svg></span>Contacté</button>
+      <button class="tgl proj" id="erProj">
+        <span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-9"/></svg></span>Projet identifié</button>
+    </div>
+    <div class="field-l">Réponse obtenue</div>
+    <div class="segs" id="erSegs"></div>
+    <div class="field-l">Notes</div>
+    <textarea class="notes" id="erNotes"></textarea>
+    <div class="err" id="erErr"></div>
+    <button id="erOk">Enregistrer les modifications</button>
+    <button class="lien-sec danger" id="erSuppr">Mettre ce rapport à la corbeille</button>
+    <button class="lien-sec" id="erAnnuler">Annuler</button>
   </div>
 </div>
 
@@ -815,7 +865,7 @@ async function fetchAll(path){
 /* ---- fichier clients (déjà filtré par le serveur) ---- */
 async function loadClients(){
   const rows = await fetchAll(
-    "clients?select=id,nom,adr,naf,tel,commercial,nb_machines,annee_achat,cree_par,machines(ordre,marque,modele,categorie,etat,plaque,annee)&order=nom.asc"
+    "clients?select=id,nom,adr,naf,tel,commercial,nb_machines,annee_achat,cree_par,machines(ordre,marque,modele,categorie,etat,plaque,annee)&supprime_le=is.null&order=nom.asc"
   );
   CLIENTS = rows.map(r=>({
     id:r.id, nom:r.nom, adr:r.adr, naf:r.naf, tel:r.tel||[], com:r.commercial,
@@ -917,11 +967,15 @@ async function envoyerContacts(){
 }
 async function loadContacts(){
   // les 300 derniers échanges suffisent largement à l'usage terrain
-  const res = await sbFetch("contacts?select=*&order=le.desc&limit=300");
+  // la jointure donne le nom même pour un client mis à la corbeille, qui ne
+  // figure plus dans CLIENTS : sans elle, l'historique afficherait un identifiant
+  const res = await sbFetch(
+    "contacts?select=*,clients(nom)&supprime_le=is.null&order=le.desc&limit=300");
   const rows = await res.json();
   CONTACTS = rows.map(r=>{
-    const c = CLIENTS.find(x=>x.id===r.client_id);
-    return {...r, nom: c ? c.nom : r.client_id};
+    const local = CLIENTS.find(x=>x.id===r.client_id);
+    const joint = r.clients && r.clients.nom;
+    return {...r, nom: (local && local.nom) || joint || r.client_id};
   });
 }
 
@@ -1107,7 +1161,7 @@ async function exporterHistorique(btn){
     // on repart du serveur : l'affichage est plafonné à 300 lignes,
     // l'export doit être complet.
     const rows = await fetchAll(
-      "contacts?select=le,vendeur_id,client_id,contacte,reponse,projet,notes,clients(nom,adr)&order=le.desc");
+      "contacts?select=le,vendeur_id,client_id,contacte,reponse,projet,notes,clients(nom,adr)&supprime_le=is.null&order=le.desc");
     if(!rows.length){ toast("Aucun contact à exporter"); return; }
     const entete = ["Date","Heure","Client","Commune","Contacté","Réponse","Projet","Notes","Identifiant client"];
     if(ME && ME.admin) entete.splice(2, 0, "Vendeur");
@@ -1151,11 +1205,16 @@ function renderHisto(){
   const head=el("div","hero-h");
   head.appendChild(el("div",null,
     `<h1>Historique des contacts</h1><p>${ME && ME.admin ? "Tous les vendeurs" : "Vos échanges"} · ${CONTACTS.length} enregistré${CONTACTS.length>1?"s":""}</p>`));
+  const actions = el("div","hactions");
   if(CONTACTS.length){
     const exp = el("button","adminlink export","Exporter vers Excel");
     exp.onclick = ()=>exporterHistorique(exp);
-    head.appendChild(exp);
+    actions.appendChild(exp);
   }
+  const cb = el("button","adminlink","Corbeille");
+  cb.onclick = ()=>renderCorbeille();
+  actions.appendChild(cb);
+  head.appendChild(actions);
   v.appendChild(head);
 
   if(!CONTACTS.length){
@@ -1189,17 +1248,90 @@ function renderHisto(){
         <div class="jtags">${etats || '<span class="stag c">Sans suite</span>'}</div>
         ${c.notes ? `<div class="jn">${esc(c.notes)}</div>` : ""}
       </div>`;
-    ligne.onclick = ()=>{
-      // renvoie sur la fiche du client concerné
-      FILTERS.q = c.nom || c.client_id; FILTERS.statut="all"; PAGE=60;
-      switchView("prospect");
-      setTimeout(()=>{
-        const carte=document.querySelector('.card[data-id="'+CSS.escape(c.client_id)+'"]');
-        if(carte){ carte.classList.add("open"); carte.scrollIntoView({block:"center"}); }
-      },60);
-    };
+    // depuis l'historique, un clic OUVRE le rapport pour le corriger :
+    // aucune nouvelle ligne n'est créée.
+    ligne.onclick = ()=>ouvrirRapport(c);
     bloc.appendChild(ligne);
   });
+}
+
+async function renderCorbeille(){
+  const v=$("#viewHisto"); v.innerHTML="";
+  const head=el("div","hero-h");
+  head.appendChild(el("div",null,
+    `<h1>Corbeille</h1><p>Éléments retirés · restaurables à tout moment</p>`));
+  const retour=el("button","adminlink","← Historique");
+  retour.onclick=()=>renderHisto();
+  head.appendChild(retour);
+  v.appendChild(head);
+
+  const attente=el("div","empty","Chargement…");
+  v.appendChild(attente);
+  let data;
+  try{ data = await chargerCorbeille(); }
+  catch(e){ attente.textContent="Lecture impossible — vérifiez la connexion."; return; }
+  attente.remove();
+
+  if(!data.clients.length && !data.rapports.length){
+    v.appendChild(emptyBox("Corbeille vide","Rien n'a été retiré."));
+    return;
+  }
+
+  if(data.clients.length){
+    v.appendChild(el("div","section-t","Clients retirés"));
+    const bloc=el("div","journal");
+    data.clients.forEach(c=>{
+      const l=el("div","jrow");
+      l.innerHTML=`<div class="jc"><b>${esc(c.nom||c.id)}</b>
+        <small>${esc(c.adr||"")} · retiré le ${dateFR(c.supprime_le)}</small></div>`;
+      const b=el("button","restaurer","Restaurer");
+      b.onclick=async()=>{
+        b.disabled=true;
+        try{
+          await mettreClientCorbeille(c.id, false);
+          await loadClients();
+          saveCache(); renderCorbeille(); updateMineBadge();
+          toast("Client restauré");
+        }catch(e){ b.disabled=false; toast("Restauration impossible"); }
+      };
+      l.appendChild(b);
+      bloc.appendChild(l);
+    });
+    v.appendChild(bloc);
+  }
+
+  if(data.rapports.length){
+    v.appendChild(el("div","section-t","Rapports retirés"));
+    const bloc=el("div","journal");
+    data.rapports.forEach(r=>{
+      const nom=(r.clients&&r.clients.nom)||r.client_id;
+      const l=el("div","jrow");
+      l.innerHTML=`<div class="jc"><b>${esc(nom)}</b>
+        <small>contact du ${dateFR(r.le)} · retiré le ${dateFR(r.supprime_le)}</small>
+        ${r.notes?`<div class="jn">${esc(r.notes)}</div>`:""}</div>`;
+      const b=el("button","restaurer","Restaurer");
+      b.onclick=async()=>{
+        b.disabled=true;
+        try{
+          await sbFetch("contacts?id=eq."+encodeURIComponent(r.id), {
+            method:"PATCH", headers:{Prefer:"return=minimal"},
+            body: JSON.stringify({supprime_le:null, supprime_par:null})
+          });
+          await loadContacts(); saveCache(); renderCorbeille();
+          toast("Rapport restauré");
+        }catch(e){ b.disabled=false; toast("Restauration impossible"); }
+      };
+      l.appendChild(b);
+      bloc.appendChild(l);
+    });
+    v.appendChild(bloc);
+  }
+
+  if(ME && ME.admin){
+    const note=el("div","scope",
+      "<b>Administrateur</b> — la suppression définitive se fait depuis Supabase (Table Editor).");
+    v.appendChild(note);
+  }
 }
 
 /* =================================================================
@@ -1316,7 +1448,8 @@ function emptyBox(title,txt){
 }
 
 function clientCard(c){
-  const s=etatAffiche(c.id);
+  // l'en-tête reflète l'état RÉEL du client ; le formulaire, lui, est vierge
+  const s=statusOf(c.id);
   const card=el("div","card "+cardState(s)+(aBrouillon(c.id)?" brouillon":""));
   card.dataset.id=c.id;
   const soon = c.an!=null && c.an<=NOW_YEAR+1;
@@ -1381,25 +1514,35 @@ function cardBody(c,s){
     ? `<div class="mmore">Aucun matériel connu pour ce client.</div>`
     : rows + more;
 
+  // Le formulaire est celui d'un NOUVEAU rapport : il part toujours vierge.
+  const d = DRAFT[c.id] || BLANK();
+  const rapports = rapportsDe(c.id);
+  const rappel = rapports.length
+    ? `<button class="deja" data-rapports>${rapports.length} rapport${rapports.length>1?"s":""} déjà enregistré${rapports.length>1?"s":""} — consulter</button>
+       <div class="rapports" data-liste hidden></div>`
+    : "";
+
   const track=`
     <div class="track">
-      <div class="track-h"><span>Suivi de prospection</span><span class="saved" data-saved>Enregistré ✓</span></div>
+      <div class="track-h"><span>Nouveau rapport de contact</span><span class="saved" data-saved>Enregistré ✓</span></div>
+      ${rappel}
       <div class="toggles">
-        <button class="tgl cont ${s.c?"on":""}" data-act="c">
+        <button class="tgl cont ${d.c?"on":""}" data-act="c">
           <span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-9"/></svg></span>Contacté</button>
-        <button class="tgl proj ${s.p?"on":""}" data-act="p">
+        <button class="tgl proj ${d.p?"on":""}" data-act="p">
           <span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-9"/></svg></span>Projet identifié</button>
       </div>
       <div class="field-l">Réponse obtenue</div>
       <div class="segs" data-rep>
         ${["rappel","interesse","pasinteresse","injoignable"].map(r=>
-          `<button class="seg ${s.r===r?"on":""}" data-rep-v="${r}">${repLabel(r)}</button>`).join("")}
+          `<button class="seg ${d.r===r?"on":""}" data-rep-v="${r}">${repLabel(r)}</button>`).join("")}
       </div>
       <div class="field-l">Notes</div>
-      <textarea class="notes" data-notes placeholder="Compte-rendu d'appel, matériel visé, échéance…">${esc(s.n||"")}</textarea>
+      <textarea class="notes" data-notes placeholder="Compte-rendu d'appel, matériel visé, échéance…">${esc(d.n||"")}</textarea>
       <button class="valider" data-valider disabled>Valider le contact</button>
       <div class="vhint" data-vhint></div>
-      ${s.by?`<div class="by">Dernière maj par ${esc(displayName(s.by))}${s.at?" · "+new Date(s.at).toLocaleDateString("fr-FR",{day:"2-digit",month:"short"}):""}</div>`:""}
+      ${s.by?`<div class="by">Dernier contact : ${esc(displayName(s.by))}${s.at?" · "+new Date(s.at).toLocaleDateString("fr-FR",{day:"2-digit",month:"short"}):""}</div>`:""}
+      <button class="lien-sec danger" data-supprclient>Retirer ce client de mon portefeuille</button>
     </div>`;
 
   // Localisation : l'adresse, la carte (chargée à l'ouverture de la fiche)
@@ -1540,15 +1683,21 @@ async function chargerCarte(card, c){
    dans le navigateur : une fiche laissée à moitié remplie se retrouve telle
    quelle au retour, même après fermeture de l'application.
    ================================================================= */
+/* Chaque ouverture de fiche part d'une page blanche : on saisit un NOUVEAU
+   rapport, pas une correction du précédent. Les rapports déjà faits se
+   consultent par le bouton dédié, et se corrigent depuis l'historique. */
 function draftOf(id){
-  if(!DRAFT[id]) DRAFT[id] = {...statusEnregistre(id)};
+  if(!DRAFT[id]) DRAFT[id] = BLANK();
   return DRAFT[id];
 }
 function statusEnregistre(id){ return STATUS[id] || BLANK(); }
 function aBrouillon(id){
   const d = DRAFT[id]; if(!d) return false;
-  const s = statusEnregistre(id);
-  return d.c!==s.c || d.r!==s.r || d.p!==s.p || (d.n||"")!==(s.n||"");
+  return !!(d.c || d.r || d.p || (d.n||"").trim());
+}
+/* Rapports déjà enregistrés pour ce client (hors corbeille). */
+function rapportsDe(id){
+  return CONTACTS.filter(c=>c.client_id===id && !c.supprime_le);
 }
 function oublierBrouillon(id){ delete DRAFT[id]; writeLS(DRAFT_KEY, DRAFT); }
 function nbBrouillons(){ return Object.keys(DRAFT).filter(aBrouillon).length; }
@@ -1631,6 +1780,48 @@ function bindProspect(){
       ta.oninput=debounce(()=>{ draftOf(id).n=ta.value; brouillonModifie(card,id); },300);
       ta.onclick=e=>e.stopPropagation();
     }
+    // consulter les rapports déjà enregistrés pour ce client
+    const br=card.querySelector("[data-rapports]");
+    if(br){
+      br.onclick=ev=>{
+        ev.stopPropagation();
+        const liste=card.querySelector("[data-liste]");
+        liste.hidden=!liste.hidden;
+        if(liste.hidden) return;
+        const rs=rapportsDe(id);
+        liste.innerHTML = rs.map(r=>`
+          <div class="rrap" data-rid="${r.id}">
+            <span class="rd num">${dateFR(r.le)}</span>
+            <span class="rt">${r.projet?'<span class="stag p">Projet</span>':""}${r.reponse?`<span class="stag r">${repLabel(r.reponse)}</span>`:""}${(!r.projet&&!r.reponse&&r.contacte)?'<span class="stag c">Contacté</span>':""}</span>
+            <span class="rn2">${esc((r.notes||"").slice(0,70))}</span>
+            <span class="rm">modifier</span>
+          </div>`).join("") || '<div class="rrap vide">Aucun rapport.</div>';
+        liste.querySelectorAll("[data-rid]").forEach(l=>l.onclick=e=>{
+          e.stopPropagation();
+          const r=rapportsDe(id).find(x=>String(x.id)===l.dataset.rid);
+          if(r) ouvrirRapport(r);
+        });
+      };
+    }
+    // retirer le client du portefeuille (corbeille)
+    const bs=card.querySelector("[data-supprclient]");
+    if(bs){
+      bs.onclick=async ev=>{
+        ev.stopPropagation();
+        const cl=CLIENTS.find(x=>x.id===id);
+        if(!confirm(`Retirer « ${cl?cl.nom:id} » de votre portefeuille ?\n\nIl part à la corbeille : vous pourrez le restaurer, et ses rapports sont conservés.`)) return;
+        bs.disabled=true;
+        try{
+          await mettreClientCorbeille(id, true);
+          oublierBrouillon(id);
+          renderProspect(); updateMineBadge();
+          toast("Client mis à la corbeille");
+        }catch(e){
+          toast("Suppression impossible");
+          console.warn(e);
+        }finally{ bs.disabled=false; }
+      };
+    }
     const bv=card.querySelector("[data-valider]");
     if(bv){
       bv.onclick=async ev=>{
@@ -1678,6 +1869,104 @@ function majHistoBadge(){
   b.textContent = n ? String(n) : "";
   b.title = n ? n+" contact"+(n>1?"s":"")+" à valider" : "";
   b.classList.toggle("alerte", n>0);
+}
+
+/* =================================================================
+   Modification d'un rapport déjà enregistré
+   -----------------------------------------------------------------
+   Corriger un rapport met à jour la ligne existante ; cela ne crée jamais
+   un second rapport. Une nouvelle saisie depuis l'onglet Prospection, elle,
+   ajoute bien une ligne de plus.
+   ================================================================= */
+let RAPPORT_EDITE = null;
+
+function ouvrirRapport(c){
+  RAPPORT_EDITE = c;
+  $("#erInfo").textContent =
+    (c.nom || c.client_id) + " · " + dateFR(c.le) + " à " + heureFR(c.le);
+  $("#erCont").classList.toggle("on", !!c.contacte);
+  $("#erProj").classList.toggle("on", !!c.projet);
+  $("#erNotes").value = c.notes || "";
+  $("#erErr").textContent = "";
+  $("#erSegs").innerHTML = ["rappel","interesse","pasinteresse","injoignable"]
+    .map(r=>`<button class="seg ${c.reponse===r?"on":""}" data-er-rep="${r}">${repLabel(r)}</button>`).join("");
+  $("#erSegs").querySelectorAll("[data-er-rep]").forEach(b=>b.onclick=()=>{
+    const actuel = $("#erSegs").querySelector(".seg.on");
+    const memeBouton = actuel === b;
+    $("#erSegs").querySelectorAll(".seg").forEach(x=>x.classList.remove("on"));
+    if(!memeBouton) b.classList.add("on");
+  });
+  $("#editRapport").classList.add("show");
+}
+function bindEditRapport(){
+  const fermer = ()=>{ $("#editRapport").classList.remove("show"); RAPPORT_EDITE=null; };
+  $("#erAnnuler").onclick = fermer;
+  $("#editRapport").onclick = e=>{ if(e.target.id==="editRapport") fermer(); };
+  $("#erCont").onclick = ()=>$("#erCont").classList.toggle("on");
+  $("#erProj").onclick = ()=>$("#erProj").classList.toggle("on");
+
+  $("#erOk").onclick = async ()=>{
+    if(!RAPPORT_EDITE) return;
+    const btn=$("#erOk"); btn.disabled=true; btn.textContent="Enregistrement…";
+    const seg = $("#erSegs").querySelector(".seg.on");
+    const maj = {
+      contacte: $("#erCont").classList.contains("on"),
+      projet:   $("#erProj").classList.contains("on"),
+      reponse:  seg ? seg.dataset.erRep : "",
+      notes:    $("#erNotes").value
+    };
+    try{
+      await sbFetch("contacts?id=eq."+encodeURIComponent(RAPPORT_EDITE.id), {
+        method:"PATCH", headers:{ Prefer:"return=minimal" }, body: JSON.stringify(maj)
+      });
+      Object.assign(RAPPORT_EDITE, maj);
+      fermer();
+      await rafraichirApresRapport();
+      toast("Rapport modifié");
+    }catch(e){
+      $("#erErr").textContent = "Modification impossible : " + String(e.message||"").slice(0,150);
+    }finally{
+      btn.disabled=false; btn.textContent="Enregistrer les modifications";
+    }
+  };
+
+  $("#erSuppr").onclick = async ()=>{
+    if(!RAPPORT_EDITE) return;
+    if(!confirm("Mettre ce rapport à la corbeille ?\nVous pourrez le restaurer.")) return;
+    try{
+      await sbFetch("contacts?id=eq."+encodeURIComponent(RAPPORT_EDITE.id), {
+        method:"PATCH", headers:{ Prefer:"return=minimal" },
+        body: JSON.stringify({supprime_le:new Date().toISOString(), supprime_par:ME.vendeur_id})
+      });
+      fermer();
+      await rafraichirApresRapport();
+      toast("Rapport mis à la corbeille");
+    }catch(e){
+      $("#erErr").textContent = "Suppression impossible : " + String(e.message||"").slice(0,150);
+    }
+  };
+}
+async function rafraichirApresRapport(){
+  try{ await loadContacts(); }catch(e){}
+  saveCache();
+  if(VIEW==="histo") renderHisto(); else if(VIEW==="prospect") renderProspect();
+}
+
+/* =================================================================
+   Corbeille — clients et rapports retirés, restaurables
+   ================================================================= */
+async function mettreClientCorbeille(id, dans){
+  await rpc("corbeille_client", {cid:id, dans:dans});
+  const c = CLIENTS.find(x=>x.id===id);
+  if(c){ c.supprime_le = dans ? new Date().toISOString() : null; }
+  saveCache();
+}
+async function chargerCorbeille(){
+  const [cl, ct] = await Promise.all([
+    fetchAll("clients?select=id,nom,adr,commercial,supprime_le,supprime_par&supprime_le=not.is.null&order=supprime_le.desc"),
+    fetchAll("contacts?select=id,client_id,le,notes,reponse,projet,supprime_le,clients(nom)&supprime_le=not.is.null&order=supprime_le.desc")
+  ]);
+  return {clients: cl, rapports: ct};
 }
 
 /* ---------------- Saisie d'un nouveau client ---------------- */
@@ -1966,6 +2255,7 @@ async function init(){
   bindInscription();
   bindSSO();
   bindNouveauClient();
+  bindEditRapport();
 
   document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>switchView(t.dataset.view));
   $("#refreshBtn").onclick=e=>refresh(e.currentTarget);

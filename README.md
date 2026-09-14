@@ -204,6 +204,154 @@ Pour transférer un portefeuille, il suffit donc de réimporter avec le nouveau 
 
 ---
 
+## Ajouter un client depuis le terrain
+
+Dans l'onglet *Prospection*, le bouton **« + Ajouter un client »** permet à un vendeur
+d'enregistrer une exploitation rencontrée hors fichier. Elle rejoint **son** portefeuille
+et reste invisible des autres, comme n'importe quel client.
+
+Seul le nom est obligatoire. La fiche s'ouvre aussitôt pour enchaîner sur le suivi
+d'appel, et le suivi fonctionne dès la création — y compris le crédit au podium.
+
+**Le champ SIREN/SIRET mérite qu'on s'y arrête.** C'est l'identifiant qui fait le lien
+d'un import à l'autre :
+
+- **Renseigné** (9 ou 14 chiffres) → il devient l'identifiant du client. Le jour où
+  cette exploitation entrera dans votre export, l'import **reconnaîtra la fiche** et la
+  complétera, parc matériel compris, au lieu d'en créer une seconde.
+- **Laissé vide** → un identifiant `loc-…` est généré. Si le client entre plus tard dans
+  le fichier officiel avec son vrai numéro, **vous aurez deux fiches** : celle du terrain
+  et celle de l'import. Encouragez la saisie du numéro quand il est connu.
+
+Ces clients portent le badge **« Ajout terrain »** et un liseré hachuré. En base, les
+colonnes `cree_par` et `cree_le` les distinguent des clients importés — vides pour ces
+derniers. Pour les retrouver :
+
+```sql
+select id, nom, adr, commercial, cree_par, cree_le
+  from public.clients
+ where cree_par is not null
+ order by cree_le desc;
+```
+
+Côté sécurité, la règle d'insertion impose `commercial = mon_vendeur_id()` : un vendeur
+ne peut créer une fiche qu'à son propre nom, jamais à celui d'un collègue. S'il saisit
+un SIREN déjà présent dans le fichier mais attribué à quelqu'un d'autre, la création est
+refusée et il lui est indiqué de demander un transfert — c'est à vous de le réattribuer.
+
+**Limite connue** : un vendeur ne peut pas *corriger* une fiche qu'il a créée (faute de
+frappe sur le nom, par exemple). La modification passe par vous, dans le Table Editor ou
+par réimport.
+
+## Valider un contact, et l'historique
+
+Les cases et les notes ne partent plus au fil des clics : elles forment un **brouillon**
+que le bouton **« Valider le contact »** enregistre. Tant qu'il reste quelque chose à
+valider, la fiche porte un liseré rouge, le bouton s'active, et l'onglet Historique
+affiche un compteur.
+
+Un brouillon est **conservé dans le navigateur** : une fiche laissée à moitié remplie se
+retrouve intacte au retour, même après fermeture de l'application. Fermer l'onglet avec
+des saisies non validées déclenche l'avertissement du navigateur.
+
+Chaque validation fait deux choses :
+
+1. elle met à jour l'**état courant** du client (`prospection_status`) — ce qui alimente
+   les filtres et le podium ;
+2. elle ajoute une ligne **datée** au journal (`contacts`).
+
+D'où l'onglet **Historique** : la liste de vos échanges, du plus récent au plus ancien,
+regroupés par jour, avec l'heure, le client, la réponse obtenue et vos notes. Un clic
+sur une ligne rouvre la fiche du client. Un même client rappelé trois fois y laisse
+**trois traces** — ce que `prospection_status`, qui ne garde que l'état courant, ne
+permettait pas.
+
+Le journal est cloisonné comme le reste : un vendeur ne voit que ses propres échanges,
+l'administrateur les voit tous. Aucune règle de modification ni de suppression n'existe
+sur cette table : **un historique ne se réécrit pas**.
+
+Comme les suivis, les lignes de journal passent par une file d'attente : une coupure
+réseau ne fait rien perdre.
+
+## Rapports : un par contact, corrigeables
+
+**Depuis l'onglet Prospection**, le formulaire part **toujours vierge** : cases
+décochées, notes vides. On saisit un *nouveau* rapport, pas une correction du
+précédent. Chaque validation ajoute donc une ligne de plus à l'historique.
+
+L'en-tête de la fiche, lui, continue d'afficher l'**état réel** du client (contacté,
+réponse obtenue, projet) — ce qui alimente les filtres et le podium.
+
+Quand des rapports existent déjà, un bandeau **« N rapports déjà enregistrés —
+consulter »** les déplie : date, réponse, début des notes, et un lien *modifier*.
+
+**Depuis l'onglet Historique**, cliquer sur une ligne **ouvre le rapport pour le
+corriger**. La ligne existante est mise à jour ; aucun doublon n'est créé.
+
+## Corbeille
+
+Rien ne s'efface d'un clic.
+
+- **Un rapport** se met à la corbeille depuis son écran de modification.
+- **Un client** se retire du portefeuille par le lien en bas de sa fiche. Ses rapports
+  sont conservés.
+
+Les deux disparaissent des écrans, de l'export et des compteurs du podium, mais restent
+**restaurables par leur vendeur** : onglet Historique → bouton **Corbeille** →
+*Restaurer*.
+
+La suppression définitive n'est pas exposée dans l'application. Elle se fait depuis
+Supabase (*Table Editor*), et seul un administrateur en a le droit. Attention : effacer
+définitivement un client emporte ses rapports avec lui (contrainte `on delete cascade`).
+
+En base, quatre colonnes portent cette mécanique : `supprime_le` et `supprime_par` sur
+`clients` et sur `contacts`. Pour lister ce qui est en corbeille :
+
+```sql
+select id, nom, commercial, supprime_par, supprime_le
+  from public.clients where supprime_le is not null;
+select id, client_id, vendeur_id, le, supprime_par, supprime_le
+  from public.contacts where supprime_le is not null;
+```
+
+La mise en corbeille d'un client passe par la fonction `corbeille_client()` plutôt que
+par un droit d'écriture : le vendeur peut retirer **son** client sans obtenir pour
+autant celui d'en modifier le nom, l'adresse ou l'attribution.
+
+## Export tableur de l'historique
+
+**Côté vendeur** — onglet Historique, bouton **« Exporter vers Excel »**. Il exporte
+**tous** ses échanges, pas seulement les 300 affichés à l'écran.
+
+**Côté administrateur** — [`admin.html`](admin.html), carte *Historique des contacts*.
+Filtres facultatifs par **période** et par **vendeur**, un bouton *Compter d'abord*
+pour vérifier le volume avant d'extraire, et deux colonnes de plus : le vendeur et le
+portefeuille d'appartenance du client.
+
+| Colonne | Vendeur | Admin |
+|---|:-:|:-:|
+| Date, Heure | ✅ | ✅ |
+| Vendeur | — | ✅ |
+| Client, Commune | ✅ | ✅ |
+| Portefeuille | — | ✅ |
+| Contacté, Réponse, Projet | ✅ | ✅ |
+| Notes | ✅ | ✅ |
+| Identifiant client | ✅ | ✅ |
+
+Le cloisonnement s'applique à l'export comme au reste : un vendeur n'obtient que ses
+propres échanges, même en manipulant la page.
+
+**Le format est un CSV** en UTF-8 avec marque d'ordre des octets et séparateur `;` :
+Excel français l'ouvre d'un double-clic, colonnes séparées et accents intacts. Un vrai
+`.xlsx` imposerait une bibliothèque externe pour un résultat identique à l'usage.
+Guillemets, points-virgules et retours à la ligne présents dans les notes sont
+échappés — testé en ouvrant le fichier dans Excel.
+
+Un détail à connaître : Excel interprète les nombres, donc un identifiant client
+commençant par un zéro perdrait ce zéro à l'affichage. Sans incidence sur les noms,
+dates et notes ; si vous devez recouper sur l'identifiant, importez la colonne au
+format *Texte* via *Données → À partir d'un fichier texte*.
+
 ## Le podium
 
 Chaque action est créditée à celui qui l'a réellement saisie : `contacte_par`,
