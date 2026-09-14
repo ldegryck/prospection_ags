@@ -353,11 +353,22 @@ a{color:inherit}
 .restaurer:hover{background:var(--rouge)}
 .restaurer:disabled{opacity:.45}
 /* rapports deja enregistres, dans la fiche */
-.deja{width:100%;background:var(--gris-c);color:var(--noir);border:none;border-left:3px solid var(--rouge);
-  padding:10px 12px;margin-bottom:12px;font-family:inherit;font-size:12px;font-weight:600;
-  text-align:left;cursor:pointer;border-radius:0}
-.deja:hover{background:#dfe2e5}
-.rapports{margin:-6px 0 12px;border:1px solid var(--ligne);background:var(--panel)}
+/* ---------- Rapports precedents, mis en avant ---------- */
+.histo-client{border:1px solid var(--noir);border-left:4px solid var(--rouge);
+  background:var(--panel);margin-bottom:14px}
+.hc-h{display:flex;align-items:center;gap:9px;padding:10px 12px;background:var(--noir);color:#fff}
+.hc-h svg{width:15px;height:15px;flex:none;color:var(--rouge)}
+.hc-h b{font-family:"League Spartan",sans-serif;font-size:12px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.05em;flex:1}
+.hc-tout{background:none;border:1px solid rgba(255,255,255,.35);color:#fff;padding:5px 10px;
+  font-family:"League Spartan",sans-serif;font-size:10px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.05em;cursor:pointer;border-radius:0;flex:none}
+.hc-tout:hover{background:var(--rouge);border-color:var(--rouge)}
+.hc-dernier{padding:11px 12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.hc-date{color:var(--gris-2);font-size:12px}
+.hc-notes{flex:1 0 100%;font-size:12.5px;color:var(--gris);margin-top:4px;
+  padding-left:9px;border-left:2px solid var(--ligne)}
+.rapports{border-top:1px solid var(--ligne);background:#fafbfb}
 .rapports[hidden]{display:none}
 .rrap{display:flex;gap:9px;align-items:center;padding:9px 11px;border-top:1px solid var(--ligne);
   font-size:12px;cursor:pointer;flex-wrap:wrap}
@@ -371,10 +382,13 @@ a{color:inherit}
 .rrap.vide{color:var(--gris-2);cursor:default}
 .gatebox .lien-sec.danger{color:var(--rouge)}
 .gatebox .lien-sec.danger:hover{color:var(--rouge-f)}
-.track .lien-sec{display:block;width:100%;background:none;border:none;color:var(--gris-2);
-  font-family:inherit;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;
-  text-decoration:underline;padding:10px 0 0;text-align:left;cursor:pointer;border-radius:0}
-.track .lien-sec.danger:hover{color:var(--rouge)}
+.track-pied{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px}
+.track-pied .by{margin:0}
+.poubelle{background:none;border:1px solid var(--ligne);color:var(--gris-2);
+  width:34px;height:34px;display:grid;place-items:center;flex:none;cursor:pointer;border-radius:0}
+.poubelle svg{width:16px;height:16px}
+.poubelle:hover{border-color:var(--rouge);background:var(--rouge);color:#fff}
+.poubelle:disabled{opacity:.4}
 .stag.t{background:var(--gris-c);color:var(--noir);border:1px solid var(--noir)}
 .gatebox .lien-sec{width:auto;display:block;margin-top:11px;background:none;border:none;
   color:var(--gris);font-family:inherit;font-size:11.5px;font-weight:600;text-transform:none;
@@ -786,7 +800,11 @@ async function sbFetch(path, opts={}, _retry){
 }
 async function rpc(name, args){
   const res = await sbFetch("rpc/"+name, {method:"POST", body: JSON.stringify(args||{})});
-  return res.json();
+  // Une fonction SQL `returns void` répond 204 sans corps : appeler res.json()
+  // dessus lèverait une erreur et ferait passer une réussite pour un échec.
+  if(res.status === 204) return null;
+  const txt = await res.text();
+  return txt ? JSON.parse(txt) : null;
 }
 
 /* ---- état visuel ---- */
@@ -1517,15 +1535,35 @@ function cardBody(c,s){
   // Le formulaire est celui d'un NOUVEAU rapport : il part toujours vierge.
   const d = DRAFT[c.id] || BLANK();
   const rapports = rapportsDe(c.id);
-  const rappel = rapports.length
-    ? `<button class="deja" data-rapports>${rapports.length} rapport${rapports.length>1?"s":""} déjà enregistré${rapports.length>1?"s":""} — consulter</button>
-       <div class="rapports" data-liste hidden></div>`
-    : "";
+
+  // Les échanges précédents passent AVANT le formulaire, avec le dernier
+  // en clair : on veut savoir ce qui a été dit avant de rappeler.
+  let histo = "";
+  if(rapports.length){
+    const dernier = rapports[0];
+    const etiq = dernier.projet ? '<span class="stag p">Projet</span>'
+               : dernier.reponse ? `<span class="stag r">${repLabel(dernier.reponse)}</span>`
+               : '<span class="stag c">Contacté</span>';
+    histo = `
+      <div class="histo-client">
+        <div class="hc-h">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/></svg>
+          <b>${rapports.length} rapport${rapports.length>1?"s":""} sur ce client</b>
+          ${rapports.length>1?`<button class="hc-tout" data-rapports>Tout voir</button>`:
+                              `<button class="hc-tout" data-rapports>Modifier</button>`}
+        </div>
+        <div class="hc-dernier">
+          <span class="hc-date num">${dateFR(dernier.le)}</span>${etiq}
+          ${dernier.notes?`<div class="hc-notes">${esc(dernier.notes)}</div>`:""}
+        </div>
+        <div class="rapports" data-liste hidden></div>
+      </div>`;
+  }
 
   const track=`
+    ${histo}
     <div class="track">
       <div class="track-h"><span>Nouveau rapport de contact</span><span class="saved" data-saved>Enregistré ✓</span></div>
-      ${rappel}
       <div class="toggles">
         <button class="tgl cont ${d.c?"on":""}" data-act="c">
           <span class="box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-9"/></svg></span>Contacté</button>
@@ -1541,8 +1579,12 @@ function cardBody(c,s){
       <textarea class="notes" data-notes placeholder="Compte-rendu d'appel, matériel visé, échéance…">${esc(d.n||"")}</textarea>
       <button class="valider" data-valider disabled>Valider le contact</button>
       <div class="vhint" data-vhint></div>
-      ${s.by?`<div class="by">Dernier contact : ${esc(displayName(s.by))}${s.at?" · "+new Date(s.at).toLocaleDateString("fr-FR",{day:"2-digit",month:"short"}):""}</div>`:""}
-      <button class="lien-sec danger" data-supprclient>Retirer ce client de mon portefeuille</button>
+      <div class="track-pied">
+        ${s.by?`<span class="by">Dernier contact : ${esc(displayName(s.by))}${s.at?" · "+new Date(s.at).toLocaleDateString("fr-FR",{day:"2-digit",month:"short"}):""}</span>`:"<span></span>"}
+        <button class="poubelle" data-supprclient title="Retirer ce client de mon portefeuille" aria-label="Retirer ce client de mon portefeuille">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/><path d="M10 11v6M14 11v6"/></svg>
+        </button>
+      </div>
     </div>`;
 
   // Localisation : l'adresse, la carte (chargée à l'ouverture de la fiche)
@@ -1957,8 +1999,9 @@ async function rafraichirApresRapport(){
    ================================================================= */
 async function mettreClientCorbeille(id, dans){
   await rpc("corbeille_client", {cid:id, dans:dans});
-  const c = CLIENTS.find(x=>x.id===id);
-  if(c){ c.supprime_le = dans ? new Date().toISOString() : null; }
+  // CLIENTS ne contient que le portefeuille actif : un client mis à la
+  // corbeille doit en sortir tout de suite, sans attendre un rechargement.
+  if(dans) CLIENTS = CLIENTS.filter(x=>x.id!==id);
   saveCache();
 }
 async function chargerCorbeille(){
