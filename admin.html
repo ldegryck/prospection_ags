@@ -89,10 +89,13 @@ tfoot th{color:var(--noir);font-size:12px;border-top:2px solid var(--noir);borde
 .gatebox input{width:100%;padding:12px 14px;border:1px solid var(--ligne);font-size:16px;
   background:var(--papier);color:var(--noir);margin-bottom:13px;font-family:inherit;border-radius:0}
 .gatebox input:focus{outline:2px solid var(--rouge);outline-offset:-1px}
-.gatebox button{width:100%;background:var(--rouge);color:#fff;border:none;padding:14px;
+/* Cette règle ne vise que les boutons d'action pleine largeur. Sans les
+   exclusions, elle repeindrait en rouge les cases à cocher, les segments de
+   réponse et les liens secondaires placés dans la même boîte. */
+.gatebox button:not(.tgl):not(.seg):not(.lien-sec):not(.sso):not(.pwd-toggle):not(.poubelle):not(.hc-tout):not(.restaurer){width:100%;background:var(--rouge);color:#fff;border:none;padding:14px;
   font-family:"League Spartan",sans-serif;font-size:15px;font-weight:800;text-transform:uppercase;
   letter-spacing:.05em;cursor:pointer;border-radius:0}
-.gatebox button:hover{background:var(--rouge-f)}
+.gatebox button:not(.tgl):not(.seg):not(.lien-sec):not(.sso):not(.pwd-toggle):hover{background:var(--rouge-f)}
 .err{color:var(--rouge);font-size:12.5px;margin:-6px 0 11px;min-height:16px;font-weight:600}
 .gatebox .sso{width:100%;display:flex;align-items:center;justify-content:center;gap:11px;
   background:var(--noir);color:#fff;border:none;padding:14px;font-family:"League Spartan",sans-serif;

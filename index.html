@@ -291,11 +291,16 @@ a{color:inherit}
 .gatebox input,.gatebox select{width:100%;padding:12px 14px;border:1px solid var(--ligne);
   font-size:16px;background:var(--papier);color:var(--noir);margin-bottom:13px;font-family:inherit;border-radius:0}
 .gatebox input:focus,.gatebox select:focus{outline:2px solid var(--rouge);outline-offset:-1px}
-.gatebox button{width:100%;background:var(--rouge);color:#fff;border:none;padding:14px;
+/* Cette règle ne vise que les boutons d'action pleine largeur. Sans les
+   exclusions, elle repeindrait en rouge les cases à cocher, les segments de
+   réponse et les liens secondaires placés dans la même boîte. */
+.gatebox button:not(.tgl):not(.seg):not(.lien-sec):not(.sso):not(.pwd-toggle):not(.poubelle):not(.hc-tout):not(.restaurer){width:100%;background:var(--rouge);color:#fff;border:none;padding:14px;
   font-family:"League Spartan",sans-serif;font-size:15px;font-weight:800;
   text-transform:uppercase;letter-spacing:.05em;border-radius:0}
-.gatebox button:hover{background:var(--rouge-f)}
+.gatebox button:not(.tgl):not(.seg):not(.lien-sec):not(.sso):not(.pwd-toggle):hover{background:var(--rouge-f)}
 .gatebox button:disabled{opacity:.45}
+.gatebox .toggles{margin-bottom:12px}
+.gatebox .segs{margin-bottom:14px}
 .gatebox .err{color:var(--rouge);font-size:12.5px;margin:-6px 0 11px;min-height:16px;font-weight:600}
 /* ---------- SSO ----------
    Sélecteurs préfixés par .gatebox : sans cela, la règle générique
@@ -384,6 +389,9 @@ a{color:inherit}
 .gatebox .lien-sec.danger:hover{color:var(--rouge-f)}
 .track-pied{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px}
 .track-pied .by{margin:0}
+.er-actions{display:flex;gap:8px;align-items:stretch}
+.er-actions button:first-child{flex:1}
+.er-actions .poubelle{width:48px;height:auto}
 .poubelle{background:none;border:1px solid var(--ligne);color:var(--gris-2);
   width:34px;height:34px;display:grid;place-items:center;flex:none;cursor:pointer;border-radius:0}
 .poubelle svg{width:16px;height:16px}
@@ -549,8 +557,12 @@ a{color:inherit}
     <div class="field-l">Notes</div>
     <textarea class="notes" id="erNotes"></textarea>
     <div class="err" id="erErr"></div>
-    <button id="erOk">Enregistrer les modifications</button>
-    <button class="lien-sec danger" id="erSuppr">Mettre ce rapport à la corbeille</button>
+    <div class="er-actions">
+      <button id="erOk">Enregistrer les modifications</button>
+      <button class="poubelle" id="erSuppr" title="Mettre ce rapport à la corbeille" aria-label="Mettre ce rapport à la corbeille">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/><path d="M10 11v6M14 11v6"/></svg>
+      </button>
+    </div>
     <button class="lien-sec" id="erAnnuler">Annuler</button>
   </div>
 </div>
@@ -977,6 +989,14 @@ async function envoyerContacts(){
       syncLabel();
     }
     ENVOI_CONTACTS = false;
+    // Les lignes affichées juste après validation n'ont pas encore d'identifiant
+    // (c'est la base qui le génère). Sans cette relecture, cliquer dessus pour
+    // les corriger enverrait « id=eq.undefined ».
+    try{
+      await loadContacts();
+      saveCache();
+      if(VIEW==="histo") renderHisto(); else if(VIEW==="prospect" && !isEditing()) renderProspect();
+    }catch(e){ /* le journal est parti, l'identifiant viendra au prochain refresh */ }
   }catch(e){
     ENVOI_CONTACTS = false;
     console.warn("Journal non transmis", e);
@@ -1923,6 +1943,13 @@ function majHistoBadge(){
 let RAPPORT_EDITE = null;
 
 function ouvrirRapport(c){
+  // Un rapport encore en file d'envoi n'a pas d'identifiant : l'ouvrir
+  // produirait un appel « id=eq.undefined ».
+  if(!c || c.id===undefined || c.id===null){
+    toast("Rapport en cours d'enregistrement — réessayez dans un instant");
+    envoyerContacts();
+    return;
+  }
   RAPPORT_EDITE = c;
   $("#erInfo").textContent =
     (c.nom || c.client_id) + " · " + dateFR(c.le) + " à " + heureFR(c.le);
