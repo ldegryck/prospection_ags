@@ -373,6 +373,34 @@ a{color:inherit}
 .restaurer:hover{background:var(--rouge)}
 .restaurer:disabled{opacity:.45}
 /* rapports deja enregistres, dans la fiche */
+/* ---------- Relances ---------- */
+.relance{background:#fdf2f4;border-left:3px solid var(--rouge);padding:11px 12px;margin:0 0 13px}
+.relance[hidden]{display:none}
+.relance .field-l{margin-top:0}
+.rel-vite{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:9px}
+.rel-j{border:1px solid var(--ligne);background:var(--panel);color:var(--gris);padding:6px 11px;
+  font-family:inherit;font-size:11.5px;font-weight:600;cursor:pointer;border-radius:0}
+.rel-j.on,.rel-j:hover{background:var(--noir);color:#fff;border-color:var(--noir)}
+.rel-date{width:100%;padding:9px 11px;border:1px solid var(--ligne);background:var(--panel);
+  font-family:inherit;font-size:14px;color:var(--noir);border-radius:0}
+.rel-date:focus{outline:2px solid var(--rouge);outline-offset:-1px}
+.stag.rel{background:var(--panel);color:var(--noir);border:1px solid var(--noir)}
+.stag.rel.due{background:var(--rouge);color:#fff;border-color:var(--rouge)}
+.chip.alerte{border-color:var(--rouge);color:var(--rouge)}
+.chip.alerte.on{background:var(--rouge);border-color:var(--rouge);color:#fff}
+.rappel-jour{display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+  background:var(--noir);color:#fff;border:none;border-left:4px solid var(--rouge);
+  padding:13px 14px;margin-bottom:10px;cursor:pointer;font-family:inherit}
+.rappel-jour:hover{background:var(--noir-2)}
+.rj-n{font-family:"League Spartan",sans-serif;font-size:26px;font-weight:900;
+  color:var(--rouge);line-height:1;flex:none}
+.rj-t{flex:1;font-family:"League Spartan",sans-serif;font-size:13px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.04em;line-height:1.2}
+.rj-t small{display:block;font-family:"Montserrat",sans-serif;font-weight:500;font-size:11px;
+  text-transform:none;letter-spacing:0;color:var(--gris-2);margin-top:3px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rj-go{flex:none;font-family:"League Spartan",sans-serif;font-size:10.5px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.06em;border:1px solid rgba(255,255,255,.4);padding:6px 11px}
 /* ---------- Rapports precedents, mis en avant ---------- */
 .histo-client{border:1px solid var(--noir);border-left:4px solid var(--rouge);
   background:var(--panel);margin-bottom:14px}
@@ -881,14 +909,16 @@ function rowToStatus(r){
   return {
     c: !!r.contacte, r: r.reponse||"", p: !!r.projet, n: r.notes||"",
     by: r.maj_par||null, at: r.maj_le||null,
-    cby: r.contacte_par||null, rby: r.reponse_par||null, pby: r.projet_par||null
+    cby: r.contacte_par||null, rby: r.reponse_par||null, pby: r.projet_par||null,
+    rl: r.rappel_le||null
   };
 }
 function statusToRow(id,s){
   return {
     client_id:id, contacte:!!s.c, reponse:s.r||"", projet:!!s.p, notes:s.n||"",
     maj_par:s.by||null, maj_le:s.at||new Date().toISOString(),
-    contacte_par:s.cby||null, reponse_par:s.rby||null, projet_par:s.pby||null
+    contacte_par:s.cby||null, reponse_par:s.rby||null, projet_par:s.pby||null,
+    rappel_le: s.rl||null
   };
 }
 
@@ -1000,7 +1030,8 @@ function journaliser(id, s){
     client_id: id,
     vendeur_id: moiEffectif(),
     le: new Date().toISOString(),
-    contacte: !!s.c, reponse: s.r||"", projet: !!s.p, notes: s.n||""
+    contacte: !!s.c, reponse: s.r||"", projet: !!s.p, notes: s.n||"",
+    rappel_le: s.rl || null
   };
   const client = CLIENTS.find(c=>c.id===id);
   CONTACTS.unshift({...ligne, nom: client ? client.nom : id});   // affichage immédiat
@@ -1415,7 +1446,7 @@ async function renderCorbeille(){
 /* =================================================================
    Rendu : Prospection
    ================================================================= */
-const BLANK = ()=>({c:false,r:"",p:false,n:"",by:null,at:null,cby:null,rby:null,pby:null});
+const BLANK = ()=>({c:false,r:"",p:false,n:"",by:null,at:null,cby:null,rby:null,pby:null,rl:null});
 function statusOf(id){return STATUS[id]||BLANK();}
 /* Ce que la fiche montre : le brouillon en cours s'il existe, sinon l'état
    enregistré. Les filtres, eux, s'en tiennent à l'enregistré : un suivi non
@@ -1440,6 +1471,7 @@ function passStatut(c){
     case "cont": return s.c;
     case "rep":  return !!s.r;
     case "proj": return s.p;
+    case "relance": return relanceDue(c.id);
     case "soon": return c.an!=null && c.an<=NOW_YEAR+1;
     default: return true;
   }
@@ -1468,7 +1500,8 @@ function renderProspect(){
     cont:l.filter(c=>statusOf(c.id).c).length,
     rep:l.filter(c=>!!statusOf(c.id).r).length,
     proj:l.filter(c=>statusOf(c.id).p).length,
-    soon:l.filter(c=>c.an!=null&&c.an<=NOW_YEAR+1).length
+    soon:l.filter(c=>c.an!=null&&c.an<=NOW_YEAR+1).length,
+    relance:l.filter(c=>relanceDue(c.id)).length
   };
   const secteurChips = vueAdmin() ? `
     <div class="chips" id="secteurChips">
@@ -1484,6 +1517,7 @@ function renderProspect(){
     ${secteurChips}
     <div class="chips" id="statutChips">
       <button class="chip ${FILTERS.statut==="all"?"on":""}" data-st="all">Tous <span class="c num">${cc.all}</span></button>
+      ${cc.relance?`<button class="chip alerte ${FILTERS.statut==="relance"?"on":""}" data-st="relance">À relancer <span class="c num">${cc.relance}</span></button>`:""}
       <button class="chip ${FILTERS.statut==="soon"?"on":""}" data-st="soon">Achat proche <span class="c num">${cc.soon}</span></button>
       <button class="chip ${FILTERS.statut==="todo"?"on":""}" data-st="todo">À contacter <span class="c num">${cc.todo}</span></button>
       <button class="chip ${FILTERS.statut==="cont"?"on":""}" data-st="cont">Contactés <span class="c num">${cc.cont}</span></button>
@@ -1491,6 +1525,19 @@ function renderProspect(){
       <button class="chip ${FILTERS.statut==="proj"?"on":""}" data-st="proj">Avec projet <span class="c num">${cc.proj}</span></button>
     </div>`;
   v.appendChild(tb);
+
+  // Les relances dues passent devant tout : c'est ce qu'on vient faire en
+  // ouvrant l'application le matin.
+  const dues = relancesDues();
+  if(dues.length && FILTERS.statut!=="relance" && !FILTERS.q){
+    const b = el("button","rappel-jour");
+    b.innerHTML = `<span class="rj-n num">${dues.length}</span>
+      <span class="rj-t">client${dues.length>1?"s":""} à relancer${dues.length>1?"":""}
+        <small>${dues.slice(0,3).map(c=>esc(c.nom)).join(" · ")}${dues.length>3?" …":""}</small></span>
+      <span class="rj-go">Voir</span>`;
+    b.onclick = ()=>{ FILTERS.statut="relance"; PAGE=60; renderProspect(); };
+    v.appendChild(b);
+  }
 
   let list = sortList(baseList().filter(passStatut).filter(passQuery));
 
@@ -1536,7 +1583,9 @@ function clientCard(c){
   const yearPill = c.an!=null ? `<span class="pill year ${soon?"soon":""}">Achat ~${c.an}</span>` : "";
   const machPill = `<span class="pill mach num">${c.nm} mach.</span>`;
   const naf = c.naf ? `<span class="naf">${esc(c.naf)}</span>` : "";
+  const rl = relanceDe(c.id);
   const stags = [
+    rl?`<span class="stag rel ${relanceDue(c.id)?"due":""}">Relance ${dateCourte(rl)}</span>`:"",
     c.cree_par?'<span class="stag t">Ajout terrain</span>':"",
     s.c?'<span class="stag c">Contacté</span>':"",
     s.r?`<span class="stag r">${repLabel(s.r)}</span>`:"",
@@ -1636,6 +1685,15 @@ function cardBody(c,s){
       <div class="segs" data-rep>
         ${["rappel","interesse","pasinteresse","injoignable"].map(r=>
           `<button class="seg ${d.r===r?"on":""}" data-rep-v="${r}">${repLabel(r)}</button>`).join("")}
+      </div>
+      <div class="relance" data-relance ${d.r==="rappel"?"":"hidden"}>
+        <div class="field-l">Rappeler le</div>
+        <div class="rel-vite">
+          <button class="rel-j" data-jours="7">+ 1 semaine</button>
+          <button class="rel-j" data-jours="30">+ 1 mois</button>
+          <button class="rel-j" data-jours="90">+ 3 mois</button>
+        </div>
+        <input type="date" class="rel-date" data-reldate value="${esc(d.rl||"")}">
       </div>
       <div class="field-l">Notes</div>
       <textarea class="notes" data-notes placeholder="Compte-rendu d'appel, matériel visé, échéance…">${esc(d.n||"")}</textarea>
@@ -1797,9 +1855,20 @@ function draftOf(id){
 function statusEnregistre(id){ return STATUS[id] || BLANK(); }
 function aBrouillon(id){
   const d = DRAFT[id]; if(!d) return false;
-  return !!(d.c || d.r || d.p || (d.n||"").trim());
+  return !!(d.c || d.r || d.p || (d.n||"").trim() || d.rl);
 }
 /* Rapports déjà enregistrés pour ce client (hors corbeille). */
+/* Relances : une date échue reste due tant qu''elle n''est pas traitée. */
+function aujourdHui(){ return new Date().toISOString().slice(0,10); }
+function relanceDe(id){ const s=statusOf(id); return (s.r==="rappel" && s.rl) ? s.rl : null; }
+function relanceDue(id){ const d=relanceDe(id); return !!d && d <= aujourdHui(); }
+function relancesDues(){ return baseList().filter(c=>relanceDue(c.id)); }
+function dateCourte(iso){
+  if(!iso) return "";
+  const [a,m,j]=iso.split("-");
+  return j+"/"+m+(a!==new Date().getFullYear().toString() ? "/"+a.slice(2) : "");
+}
+
 function rapportsDe(id){
   return CONTACTS.filter(c=>c.client_id===id && !c.supprime_le);
 }
@@ -1819,6 +1888,8 @@ async function validerContact(id, card){
   const avant = {c:s.c, r:s.r, p:s.p};
 
   s.c = d.c; s.r = d.r; s.p = d.p; s.n = d.n;
+  // une relance n'a de sens que si la réponse reste « à rappeler »
+  s.rl = (d.r === "rappel") ? (d.rl || null) : null;
   const credit = {c:"cby", r:"rby", p:"pby"};
   ["c","r","p"].forEach(k=>{
     if(d[k] !== avant[k]) s[credit[k]] = s[k] ? me : null;   // changement → crédit
@@ -1877,8 +1948,34 @@ function bindProspect(){
       if(d.r && !d.c) d.c=true;
       card.querySelectorAll("[data-rep-v]").forEach(x=>x.classList.toggle("on",x.dataset.repV===d.r));
       const ct=card.querySelector(".tgl.cont"); if(ct)ct.classList.toggle("on",d.c);
+      // le champ de relance ne s'affiche que pour « À rappeler »
+      const bloc=card.querySelector("[data-relance]");
+      if(bloc){
+        bloc.hidden = (d.r !== "rappel");
+        if(bloc.hidden){ d.rl=null; const i=card.querySelector("[data-reldate]"); if(i) i.value=""; }
+      }
       brouillonModifie(card,id);
     });
+    // raccourcis de date : « + 1 semaine », « + 1 mois », « + 3 mois »
+    card.querySelectorAll("[data-jours]").forEach(b=>b.onclick=ev=>{
+      ev.stopPropagation();
+      const jours=parseInt(b.dataset.jours,10);
+      const dt=new Date(); dt.setDate(dt.getDate()+jours);
+      const iso=dt.toISOString().slice(0,10);
+      draftOf(id).rl=iso;
+      const i=card.querySelector("[data-reldate]"); if(i) i.value=iso;
+      card.querySelectorAll("[data-jours]").forEach(x=>x.classList.toggle("on",x===b));
+      brouillonModifie(card,id);
+    });
+    const rd=card.querySelector("[data-reldate]");
+    if(rd){
+      rd.onclick=e=>e.stopPropagation();
+      rd.onchange=e=>{
+        draftOf(id).rl = e.target.value || null;
+        card.querySelectorAll("[data-jours]").forEach(x=>x.classList.remove("on"));
+        brouillonModifie(card,id);
+      };
+    }
     const ta=card.querySelector("[data-notes]");
     if(ta){
       ta.oninput=debounce(()=>{ draftOf(id).n=ta.value; brouillonModifie(card,id); },300);
