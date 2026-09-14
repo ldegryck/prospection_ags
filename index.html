@@ -351,7 +351,22 @@ a{color:inherit}
 .jc small{display:block;color:var(--gris-2);font-size:11px;margin-top:1px}
 .jtags{display:flex;gap:4px;flex-wrap:wrap;margin-top:5px}
 .jn{font-size:12.5px;color:var(--gris);margin-top:6px;padding-left:9px;border-left:2px solid var(--ligne)}
-.hactions{display:flex;gap:6px;flex-wrap:wrap}
+/* ---------- Vue déléguée ---------- */
+.incarne{background:var(--rouge);color:#fff;padding:9px 14px;font-size:12px;
+  display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;text-align:center}
+.incarne[hidden]{display:none}
+.incarne b{font-family:"League Spartan",sans-serif;text-transform:uppercase;letter-spacing:.03em}
+.incarne button{background:none;border:1px solid rgba(255,255,255,.5);color:#fff;
+  padding:5px 11px;font-family:"League Spartan",sans-serif;font-size:10px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.05em;cursor:pointer;border-radius:0}
+.incarne button:hover{background:#fff;color:var(--rouge)}
+.who #vueSelect{appearance:none;background:rgba(255,255,255,.12);color:#fff;
+  border:1px solid rgba(255,255,255,.3);border-radius:0;padding:7px 26px 7px 10px;
+  font-family:inherit;font-size:11.5px;max-width:38vw;cursor:pointer;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' fill='white' viewBox='0 0 16 16'><path d='M4 6l4 4 4-4'/></svg>");
+  background-repeat:no-repeat;background-position:right 8px center}
+.who #vueSelect option{color:#111}
+.who #vueSelect[hidden]{display:none}.hactions{display:flex;gap:6px;flex-wrap:wrap}
 .restaurer{background:var(--noir);color:#fff;border:none;padding:8px 12px;flex:none;align-self:center;
   font-family:"League Spartan",sans-serif;font-size:10.5px;font-weight:700;
   text-transform:uppercase;letter-spacing:.05em;border-radius:0;cursor:pointer}
@@ -455,6 +470,7 @@ a{color:inherit}
   .rrow .rn b{font-size:13.5px}
   .hero-h h1{font-size:19px}
   .who .me{display:none}
+  .appbar.avec-vue .brand .name{display:none}
   .pod .pname{font-size:11.5px}
   .pod .pcount{font-size:32px}
   .pod .plabel{font-size:9px;letter-spacing:.05em}
@@ -480,10 +496,16 @@ a{color:inherit}
   <div class="who">
     <div class="avatar" id="meAva">–</div>
     <div class="me"><b id="meName">—</b><small id="meRole"></small></div>
+    <select id="vueSelect" title="Vue active" hidden></select>
     <button class="iconbtn" id="logoutBtn" title="Se déconnecter">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
     </button>
   </div>
+</div>
+
+<div class="incarne" id="incarne" hidden>
+  <span>Vous agissez au nom de <b id="incarneNom">—</b></span>
+  <button id="incarneStop">Revenir en administrateur</button>
 </div>
 
 <div class="syncbar" id="syncbar"></div>
@@ -632,7 +654,22 @@ const CONTACTS_KEY= "ags.prospection.journal.v2";
 
 /* ---------------- État ---------------- */
 let SESSION = null;   // { access_token, refresh_token, expires_at }
-let ME      = null;   // { vendeur_id, nom_affiche, admin }
+let ME      = null;   // { vendeur_id, nom_affiche, admin } — le compte connecté
+let VUE     = null;   // vendeur incarné par un administrateur, sinon null
+let VENDEURS = [];    // annuaire, pour le sélecteur de vue (admin seulement)
+
+/* Identité sous laquelle on agit : celle du vendeur incarné si un
+   administrateur a choisi sa vue, sinon celle du compte. Tout ce qui est
+   ÉCRIT (rapports, crédits du podium, création de client) passe par ici. */
+function moiEffectif(){ return VUE || (ME && ME.vendeur_id) || null; }
+/* Vrai seulement quand un administrateur regarde l'ensemble du fichier.
+   En vue déléguée, l'application se comporte comme pour un vendeur. */
+function vueAdmin(){ return !!(ME && ME.admin && !VUE); }
+function nomEffectif(){
+  if(!VUE) return ME ? ME.nom_affiche : "—";
+  const v = VENDEURS.find(x=>x.vendeur_id===VUE);
+  return v ? v.nom_affiche : displayName(VUE);
+}
 let CLIENTS = [];     // uniquement ce que le serveur a bien voulu envoyer
 let STATUS  = {};     // { client_id: {c,r,p,n,by,at,cby,rby,pby} }
 let BOARD   = [];     // podium (agrégats de toute l'équipe)
@@ -931,10 +968,10 @@ async function creerClient(champs){
     adr:         champs.adr || null,
     naf:         null,
     tel:         champs.tel ? [champs.tel] : [],
-    commercial:  ME.vendeur_id,     // la policy refuse toute autre valeur
+    commercial:  moiEffectif(),     // la policy refuse toute autre valeur
     nb_machines: 0,
     annee_achat: champs.an,
-    cree_par:    ME.vendeur_id,
+    cree_par:    moiEffectif(),
     cree_le:     new Date().toISOString()
   };
   const res = await sbFetch("clients", {
@@ -961,7 +998,7 @@ async function creerClient(champs){
 function journaliser(id, s){
   const ligne = {
     client_id: id,
-    vendeur_id: ME.vendeur_id,
+    vendeur_id: moiEffectif(),
     le: new Date().toISOString(),
     contacte: !!s.c, reponse: s.r||"", projet: !!s.p, notes: s.n||""
   };
@@ -1007,8 +1044,10 @@ async function loadContacts(){
   // les 300 derniers échanges suffisent largement à l'usage terrain
   // la jointure donne le nom même pour un client mis à la corbeille, qui ne
   // figure plus dans CLIENTS : sans elle, l'historique afficherait un identifiant
+  // en vue déléguée, on ne regarde que le journal du vendeur incarné
+  const filtreVue = VUE ? "&vendeur_id=eq."+encodeURIComponent(VUE) : "";
   const res = await sbFetch(
-    "contacts?select=*,clients(nom)&supprime_le=is.null&order=le.desc&limit=300");
+    "contacts?select=*,clients(nom)&supprime_le=is.null"+filtreVue+"&order=le.desc&limit=300");
   const rows = await res.json();
   CONTACTS = rows.map(r=>{
     const local = CLIENTS.find(x=>x.id===r.client_id);
@@ -1107,7 +1146,7 @@ function renderHome(){
 
   const head=el("div","hero-h");
   head.appendChild(el("div",null,`<h1>Classement des vendeurs</h1><p>Projets levés par l'équipe · saison ${NOW_YEAR}</p>`));
-  if(ME && ME.admin){
+  if(vueAdmin()){
     const a=el("a","adminlink","Importer / gérer le fichier clients");
     a.href="admin.html";
     head.appendChild(a);
@@ -1145,7 +1184,7 @@ function renderHome(){
   v.appendChild(el("div","section-t","Classement complet"));
   const rank=el("div","rank");
   BOARD.forEach((b,i)=>{
-    const row=el("div","rrow"+(ME && b.vendeur_id===ME.vendeur_id?" me":""));
+    const row=el("div","rrow"+(b.vendeur_id===moiEffectif()?" me":""));
     row.innerHTML=`
       <div class="pos num">${i+1}</div>
       <div class="ava">${initials(b.vendeur_id)}</div>
@@ -1199,10 +1238,11 @@ async function exporterHistorique(btn){
     // on repart du serveur : l'affichage est plafonné à 300 lignes,
     // l'export doit être complet.
     const rows = await fetchAll(
-      "contacts?select=le,vendeur_id,client_id,contacte,reponse,projet,notes,clients(nom,adr)&supprime_le=is.null&order=le.desc");
+      "contacts?select=le,vendeur_id,client_id,contacte,reponse,projet,notes,clients(nom,adr)&supprime_le=is.null"
+      + (VUE ? "&vendeur_id=eq."+encodeURIComponent(VUE) : "") + "&order=le.desc");
     if(!rows.length){ toast("Aucun contact à exporter"); return; }
     const entete = ["Date","Heure","Client","Commune","Contacté","Réponse","Projet","Notes","Identifiant client"];
-    if(ME && ME.admin) entete.splice(2, 0, "Vendeur");
+    if(vueAdmin()) entete.splice(2, 0, "Vendeur");
     const lignes = [entete];
     rows.forEach(r=>{
       const cl = r.clients || {};
@@ -1214,7 +1254,7 @@ async function exporterHistorique(btn){
         r.projet ? "oui" : "non",
         r.notes || "", r.client_id
       ];
-      if(ME && ME.admin) l.splice(2, 0, displayName(r.vendeur_id));
+      if(vueAdmin()) l.splice(2, 0, displayName(r.vendeur_id));
       lignes.push(l);
     });
     telechargerCSV(`historique-contacts-${horodatageFichier()}.csv`, lignes);
@@ -1242,7 +1282,7 @@ function renderHisto(){
   const v=$("#viewHisto"); v.innerHTML="";
   const head=el("div","hero-h");
   head.appendChild(el("div",null,
-    `<h1>Historique des contacts</h1><p>${ME && ME.admin ? "Tous les vendeurs" : "Vos échanges"} · ${CONTACTS.length} enregistré${CONTACTS.length>1?"s":""}</p>`));
+    `<h1>Historique des contacts</h1><p>${vueAdmin() ? "Tous les vendeurs" : (VUE ? "Échanges de "+esc(nomEffectif()) : "Vos échanges")} · ${CONTACTS.length} enregistré${CONTACTS.length>1?"s":""}</p>`));
   const actions = el("div","hactions");
   if(CONTACTS.length){
     const exp = el("button","adminlink export","Exporter vers Excel");
@@ -1281,7 +1321,7 @@ function renderHisto(){
       <div class="jh num">${heure}</div>
       <div class="jc">
         <b>${esc(c.nom || c.client_id)}</b>
-        ${ME && ME.admin && c.vendeur_id!==ME.vendeur_id
+        ${vueAdmin() && c.vendeur_id!==ME.vendeur_id
             ? `<small>par ${esc(displayName(c.vendeur_id))}</small>` : ""}
         <div class="jtags">${etats || '<span class="stag c">Sans suite</span>'}</div>
         ${c.notes ? `<div class="jn">${esc(c.notes)}</div>` : ""}
@@ -1365,7 +1405,7 @@ async function renderCorbeille(){
     v.appendChild(bloc);
   }
 
-  if(ME && ME.admin){
+  if(vueAdmin()){
     const note=el("div","scope",
       "<b>Administrateur</b> — la suppression définitive se fait depuis Supabase (Table Editor).");
     v.appendChild(note);
@@ -1384,10 +1424,12 @@ function etatAffiche(id){ return DRAFT[id] || statusOf(id); }
 function cardState(s){ return s.p?"s-proj":s.r?"s-rep":s.c?"s-cont":""; }
 
 function baseList(){
+  // En vue déléguée, on ne montre que le portefeuille du vendeur incarné.
+  if(VUE) return CLIENTS.filter(c=>c.com===VUE);
   // Un vendeur ne reçoit déjà que son portefeuille : les filtres de secteur
   // n'ont de sens que pour l'administrateur, qui voit tout le fichier.
-  if(!ME || !ME.admin) return CLIENTS;
-  if(FILTERS.secteur==="mine") return CLIENTS.filter(c=>c.com===ME.vendeur_id);
+  if(!vueAdmin()) return CLIENTS;
+  if(FILTERS.secteur==="mine") return CLIENTS.filter(c=>c.com===ME.vendeur_id);   // ses propres clients
   if(FILTERS.secteur==="free") return CLIENTS.filter(c=>c.com==="Non attribué");
   return CLIENTS;
 }
@@ -1428,7 +1470,7 @@ function renderProspect(){
     proj:l.filter(c=>statusOf(c.id).p).length,
     soon:l.filter(c=>c.an!=null&&c.an<=NOW_YEAR+1).length
   };
-  const secteurChips = (ME && ME.admin) ? `
+  const secteurChips = vueAdmin() ? `
     <div class="chips" id="secteurChips">
       <button class="chip ${FILTERS.secteur==="mine"?"on":""}" data-sec="mine">Mes clients</button>
       <button class="chip ${FILTERS.secteur==="free"?"on":""}" data-sec="free">Non attribués</button>
@@ -1773,7 +1815,7 @@ function ensureStatus(id){ if(!STATUS[id]) STATUS[id]=BLANK(); return STATUS[id]
 async function validerContact(id, card){
   const d = draftOf(id);
   const s = ensureStatus(id);
-  const me = ME.vendeur_id;
+  const me = moiEffectif();
   const avant = {c:s.c, r:s.r, p:s.p};
 
   s.c = d.c; s.r = d.r; s.p = d.p; s.n = d.n;
@@ -2005,7 +2047,7 @@ function bindEditRapport(){
     try{
       await sbFetch("contacts?id=eq."+encodeURIComponent(RAPPORT_EDITE.id), {
         method:"PATCH", headers:{ Prefer:"return=minimal" },
-        body: JSON.stringify({supprime_le:new Date().toISOString(), supprime_par:ME.vendeur_id})
+        body: JSON.stringify({supprime_le:new Date().toISOString(), supprime_par:moiEffectif()})
       });
       fermer();
       await rafraichirApresRapport();
@@ -2055,7 +2097,7 @@ function bindNouveauClient(){
   btn.onclick = async ()=>{
     const nom = $("#ncNom").value.trim();
     err.textContent="";
-    if(!ME || !ME.vendeur_id){ err.textContent="Votre compte n'est rattaché à aucun portefeuille."; return; }
+    if(!moiEffectif()){ err.textContent="Aucun portefeuille actif : choisissez une vue vendeur."; return; }
     if(!nom){ err.textContent="Le nom de l'exploitation est obligatoire."; return; }
 
     const siren = $("#ncSiren").value.trim();
@@ -2101,7 +2143,8 @@ function bindNouveauClient(){
 
 function updateMineBadge(){
   const b=$("#mineBadge"); if(!b) return;
-  const mine=CLIENTS;
+  // en vue déléguée, le compteur suit le portefeuille du vendeur incarné
+  const mine = VUE ? CLIENTS.filter(c=>c.com===VUE) : CLIENTS;
   if(!mine.length){ b.textContent=""; return; }
   const done=mine.filter(c=>statusOf(c.id).c).length;
   b.textContent=`${done}/${mine.length}`;
@@ -2275,9 +2318,66 @@ function bindLogin(){
 }
 
 function setIdentity(){
-  $("#meAva").textContent = ME?initials(ME.vendeur_id):"–";
-  $("#meName").textContent = ME?ME.nom_affiche:"—";
-  $("#meRole").textContent = ME?(ME.admin?"administrateur":"vendeur"):"";
+  $("#meAva").textContent  = ME ? initials(moiEffectif() || ME.vendeur_id) : "–";
+  $("#meName").textContent = ME ? nomEffectif() : "—";
+  $("#meRole").textContent = ME ? (VUE ? "vue déléguée" : (ME.admin ? "administrateur" : "vendeur")) : "";
+  // le sélecteur prend de la place : sur mobile, il remplace le nom de marque
+  const bar = document.querySelector(".appbar");
+  if(bar) bar.classList.toggle("avec-vue", !!(ME && ME.admin));
+  const b = $("#incarne");
+  if(b){
+    b.hidden = !VUE;
+    if(VUE) $("#incarneNom").textContent = nomEffectif();
+  }
+}
+
+/* =================================================================
+   Vue déléguée — un administrateur travaille au nom d'un vendeur
+   -----------------------------------------------------------------
+   Utile pour prendre un appel à la place d'un commercial absent : le rapport
+   est alors enregistré à SON nom, et compte pour lui au podium. Le choix
+   n'est pas mémorisé d'une session à l'autre, pour qu'on ne saisisse pas
+   par inadvertance au nom d'un collègue après une reconnexion.
+   ================================================================= */
+async function chargerVendeurs(){
+  if(!ME || !ME.admin) return;
+  try{
+    const res = await sbFetch("vendeurs?select=vendeur_id,nom_affiche,admin&actif=is.true&order=nom_affiche.asc");
+    VENDEURS = await res.json();
+  }catch(e){ VENDEURS = []; }
+}
+function remplirSelecteurVue(){
+  const sel = $("#vueSelect");
+  if(!sel) return;
+  if(!ME || !ME.admin){ sel.hidden = true; return; }
+  sel.hidden = false;
+  sel.innerHTML = '<option value="">Vue administrateur</option>' +
+    VENDEURS.filter(v=>!v.admin).map(v=>
+      `<option value="${esc(v.vendeur_id)}">${esc(v.nom_affiche)}</option>`).join("");
+  sel.value = VUE || "";
+  sel.onchange = async ()=>{
+    const n = nbBrouillons();
+    if(n && !confirm(`${n} saisie${n>1?"s":""} non validée${n>1?"s":""} sera${n>1?"ont":""} conservée${n>1?"s":""} mais reste${n>1?"nt":""} attachée${n>1?"s":""} à la vue en cours.\n\nChanger de vue malgré tout ?`)){
+      sel.value = VUE || "";
+      return;
+    }
+    await changerVue(sel.value || null);
+  };
+}
+async function changerVue(v){
+  VUE = v;
+  setIdentity();
+  FILTERS.secteur = vueAdmin() ? "all" : "mine";
+  FILTERS.statut = "all"; FILTERS.q = ""; PAGE = 60;
+  try{
+    await loadContacts();
+    saveCache();
+  }catch(e){ /* le cache suffit à l'affichage */ }
+  updateMineBadge();
+  if(VIEW==="home") renderHome();
+  else if(VIEW==="histo") renderHisto();
+  else renderProspect();
+  toast(VUE ? "Vue de "+nomEffectif() : "Vue administrateur");
 }
 
 /* ---------------- Démarrage ---------------- */
@@ -2293,7 +2393,9 @@ async function startApp(){
     return;
   }
   setIdentity();
-  if(ME.admin) FILTERS.secteur="all";
+  if(vueAdmin()) FILTERS.secteur="all";
+  await chargerVendeurs();
+  remplirSelecteurVue();
 
   // Le cache permet d'afficher immédiatement ; une coupure réseau ne doit pas
   // laisser l'écran vide ni empêcher de consulter ce qu'on a déjà.
@@ -2330,6 +2432,7 @@ async function init(){
   document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>switchView(t.dataset.view));
   $("#refreshBtn").onclick=e=>refresh(e.currentTarget);
   $("#logoutBtn").onclick=()=>{ if(confirm("Se déconnecter de cet appareil ?")) signOut(); };
+  $("#incarneStop").onclick=()=>{ const s=$("#vueSelect"); if(s) s.value=""; changerVue(null); };
 
   document.addEventListener("visibilitychange",()=>{ if(!document.hidden && ME) refresh(null,true); });
   window.addEventListener("online", ()=>{ if(ME){ ONLINE=true; banner(null); refresh(null,true); } });
